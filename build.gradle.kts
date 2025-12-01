@@ -16,7 +16,7 @@ plugins {
 }
 
 group = "org.chokopieum.software"
-version = "0.1-prealpha"
+version = "0.1.1-prealpha"
 
 repositories {
     mavenCentral()

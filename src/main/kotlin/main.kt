@@ -1,4 +1,3 @@
-// ВАЖНО: Все необходимые импорты здесь уже есть
 import androidx.compose.desktop.ui.tooling.preview.Preview
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,9 +23,8 @@ import kotlinx.coroutines.launch
 import java.awt.Desktop
 import java.io.File
 
-// === ЗАГЛУШКИ (Имитация логики) ===
+// === ЗАГЛУШКИ (Оставим пока не реализуем) ===
 data class AuthSession(val username: String, val accessToken: String)
-data class MinecraftBuild(val name: String, val version: String, val type: String)
 
 class ElyByAuth {
     fun loadSession(): AuthSession? = null
@@ -36,21 +34,6 @@ class ElyByAuth {
         delay(1000) // Имитация запроса
         return AuthSession(user, "token_123")
     }
-}
-
-class BuildManager {
-    private val builds = mutableListOf(
-        MinecraftBuild("HiTech", "1.12.2", "Forge"),
-        MinecraftBuild("Vanilla", "1.20.1", "Fabric")
-    )
-    fun loadBuilds(): List<MinecraftBuild> = builds
-    fun addBuild(name: String, version: String, type: String) {
-        builds.add(MinecraftBuild(name, version, type))
-    }
-    fun deleteBuild(name: String) {
-        builds.removeIf { it.name == name }
-    }
-    fun getBuildPath(name: String): String = System.getProperty("user.home")
 }
 
 class MinecraftInstaller(private val buildName: String) {
@@ -71,7 +54,8 @@ class MinecraftInstaller(private val buildName: String) {
     }
 }
 
-// === ИНТЕРФЕЙС ===
+
+// === ГЛАВНОЕ ПРИЛОЖЕНИЕ И UI ===
 
 val GreenPrimary = Color(0xFF1B4D2B)
 val BackgroundColor = Color(0xFFF0F0F0)
@@ -82,16 +66,21 @@ enum class AppTab { Launch, Builds, Mods, Settings, Info }
 @Preview
 fun App() {
     val scope = rememberCoroutineScope()
-    val authClient = remember { ElyByAuth() }
+    // Используем реальный BuildManager, а не заглушку
     val buildManager = remember { BuildManager() }
+    val authClient = remember { ElyByAuth() }
 
     var currentSession by remember { mutableStateOf(authClient.loadSession()) }
     var currentTab by remember { mutableStateOf(AppTab.Launch) }
     var statusText by remember { mutableStateOf("Готов к запуску") }
+    // Загружаем сборки из файла при старте
     var buildList by remember { mutableStateOf(buildManager.loadBuilds()) }
 
+    // Состояния для диалоговых окон
     var showLoginDialog by remember { mutableStateOf(false) }
     var showAddBuildDialog by remember { mutableStateOf(false) }
+    var errorDialogMessage by remember { mutableStateOf<String?>(null) }
+    var buildToDelete by remember { mutableStateOf<MinecraftBuild?>(null) }
 
     MaterialTheme {
         Row(modifier = Modifier.fillMaxSize().background(BackgroundColor)) {
@@ -130,18 +119,15 @@ fun App() {
                 }
             }
 
-            // Контент
+            // Основной контент
             Box(modifier = Modifier.weight(1f).padding(16.dp)) {
                 when (currentTab) {
                     AppTab.Launch -> LaunchTab(buildList, currentSession) { statusText = it }
                     AppTab.Builds -> BuildsTab(
                         builds = buildList,
                         onAddClick = { showAddBuildDialog = true },
-                        onDeleteClick = {
-                            buildManager.deleteBuild(it.name)
-                            buildList = buildManager.loadBuilds()
-                        },
-                        onOpenFolderClick = { openFolder(buildManager.getBuildPath(it.name)) },
+                        onDeleteClick = { build -> buildToDelete = build },
+                        onOpenFolderClick = { build -> openFolder(build.installPath) },
                         onRefresh = { buildList = buildManager.loadBuilds() }
                     )
                     else -> Text("Раздел в разработке: $currentTab", style = MaterialTheme.typography.h5)
@@ -149,10 +135,12 @@ fun App() {
             }
         }
 
+        // Статус-бар внизу
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
             Text(statusText, modifier = Modifier.fillMaxWidth().background(Color.LightGray).padding(4.dp))
         }
 
+        // === Диалоговые окна ===
         if (showLoginDialog) {
             LoginDialog(onDismiss = { showLoginDialog = false }) { user, pass ->
                 scope.launch {
@@ -164,15 +152,54 @@ fun App() {
                 }
             }
         }
+
         if (showAddBuildDialog) {
-            AddBuildDialog(onDismiss = { showAddBuildDialog = false }) { n, v, t ->
-                buildManager.addBuild(n, v, t)
-                buildList = buildManager.loadBuilds()
-                showAddBuildDialog = false
-            }
+            AddBuildDialog(
+                onDismiss = { showAddBuildDialog = false },
+                onAdd = { n, v, t ->
+                    try {
+                        buildManager.addBuild(n, v, t)
+                        buildList = buildManager.loadBuilds()
+                        showAddBuildDialog = false
+                    } catch (e: Exception) {
+                        errorDialogMessage = e.message
+                    }
+                }
+            )
+        }
+
+        if (errorDialogMessage != null) {
+            AlertDialog(
+                onDismissRequest = { errorDialogMessage = null },
+                title = { Text("Ошибка") },
+                text = { Text(errorDialogMessage!!) },
+                confirmButton = { Button(onClick = { errorDialogMessage = null }) { Text("OK") } }
+            )
+        }
+
+        if (buildToDelete != null) {
+            AlertDialog(
+                onDismissRequest = { buildToDelete = null },
+                title = { Text("Подтверждение") },
+                text = { Text("Вы уверены, что хотите удалить сборку '${buildToDelete!!.name}'? Папка также будет удалена.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            buildManager.deleteBuild(buildToDelete!!.name)
+                            buildList = buildManager.loadBuilds()
+                            buildToDelete = null
+                        },
+                        colors = ButtonDefaults.buttonColors(backgroundColor = Color.Red)
+                    ) { Text("Удалить") }
+                },
+                dismissButton = { Button(onClick = { buildToDelete = null }) { Text("Отмена") } }
+            )
         }
     }
 }
+
+
+// === UI Компоненты для вкладок и диалогов ===
 
 @Composable
 fun LaunchTab(builds: List<MinecraftBuild>, session: AuthSession?, onStatus: (String) -> Unit) {
@@ -233,7 +260,13 @@ fun LaunchTab(builds: List<MinecraftBuild>, session: AuthSession?, onStatus: (St
 }
 
 @Composable
-fun BuildsTab(builds: List<MinecraftBuild>, onAddClick: () -> Unit, onDeleteClick: (MinecraftBuild) -> Unit, onOpenFolderClick: (MinecraftBuild) -> Unit, onRefresh: () -> Unit) {
+fun BuildsTab(
+    builds: List<MinecraftBuild>,
+    onAddClick: () -> Unit,
+    onDeleteClick: (MinecraftBuild) -> Unit,
+    onOpenFolderClick: (MinecraftBuild) -> Unit,
+    onRefresh: () -> Unit
+) {
     Column {
         Row(Modifier.padding(8.dp)) {
             IconButton(onAddClick) { Icon(Icons.Default.Add, null) }
@@ -255,7 +288,13 @@ fun BuildsTab(builds: List<MinecraftBuild>, onAddClick: () -> Unit, onDeleteClic
 
 @Composable
 fun TabButton(text: String, active: Boolean, onClick: () -> Unit) {
-    Box(Modifier.fillMaxWidth().height(50.dp).background(if (active) GreenPrimary else Color.Transparent).clickable(onClick = onClick).padding(start = 16.dp), contentAlignment = Alignment.CenterStart) {
+    Box(
+        Modifier.fillMaxWidth().height(50.dp)
+            .background(if (active) GreenPrimary else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(start = 16.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
         Text(text, color = if (active) Color.White else Color.Black)
     }
 }
@@ -297,7 +336,7 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, String) -> Uni
 fun openFolder(path: String) = runCatching { Desktop.getDesktop().open(File(path)) }
 
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "EchoLauncher PreAlphaKt") {
+    Window(onCloseRequest = ::exitApplication, title = "EchoLauncher Kotlin") {
         App()
     }
 }
