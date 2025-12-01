@@ -336,7 +336,7 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, String) -> Uni
 fun openFolder(path: String) = runCatching { Desktop.getDesktop().open(File(path)) }
 
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "EchoLauncher Kotlin") {
+    Window(onCloseRequest = ::exitApplication, title = "EchoLauncher PreAlhpaKt") {
         App()
     }
 }
