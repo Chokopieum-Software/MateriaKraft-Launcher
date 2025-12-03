@@ -34,6 +34,13 @@ dependencies {
 
     // === Работа с JSON (Сериализация) ===
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    // === Сеть (HTTP Client) ===
+    implementation("io.ktor:ktor-client-core:3.0.1")
+    implementation("io.ktor:ktor-client-cio:3.0.1") // Движок для Ktor
+    // Для автоматической работы с JSON в Ktor
+    implementation("io.ktor:ktor-client-content-negotiation:3.0.1")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.1")
 }
 
 kotlin {
