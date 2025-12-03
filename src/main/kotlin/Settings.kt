@@ -8,7 +8,7 @@ import kotlin.io.path.writeText
 
 @Serializable
 data class AppSettings(
-    val maxRamMb: Int = 2048, // Для Pi лучше по умолчанию меньше, если плата на 4ГБ
+    val maxRamMb: Int = 2048, // ОЗУ
     val javaArgs: String = "", // Например: -XX:+UseG1GC
     val envVars: String = ""   // Например: MESA_GL_VERSION_OVERRIDE=3.3
 )
@@ -21,7 +21,7 @@ class SettingsManager {
         if (!settingsPath.exists()) return AppSettings()
         return try {
             json.decodeFromString<AppSettings>(settingsPath.readText())
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             AppSettings()
         }
     }

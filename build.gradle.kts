@@ -64,8 +64,34 @@ compose.desktop {
             // Настройки для Windows (когда будет иконка)
             windows {
                 // menuGroup = "EchoLauncher"
-                // upgradeUuid = "..." // сгенерируй UUID, чтобы установщик обновлял старую версию
+
+             // upgradeUuid = "..." // сгенерируй UUID, чтобы установщик обновлял старую версию
             }
         }
     }
+}
+tasks.register<Jar>("fatJar") {
+    group = "build"
+    description = "Собирает универсальный JAR со всеми зависимостями."
+
+    manifest {
+        attributes["Main-Class"] = compose.desktop.application.mainClass
+    }
+
+    from(sourceSets.main.get().output)
+
+    dependsOn(configurations.runtimeClasspath)
+    from({
+        configurations.runtimeClasspath.get().flatMap { file ->
+            if (file.isDirectory) {
+                file.walkTopDown().toList()
+            } else {
+                zipTree(file)
+            }
+        }
+    })
+
+    archiveBaseName.set("EchoLauncher")
+    archiveVersion.set(project.version.toString())
+    archiveClassifier.set("all")
 }

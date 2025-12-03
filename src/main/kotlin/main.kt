@@ -1,3 +1,4 @@
+
 import androidx.compose.desktop.ui.tooling.preview.Preview
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,7 +10,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,60 +23,47 @@ import kotlinx.coroutines.launch
 import java.awt.Desktop
 import java.io.File
 
-// === ЗАГЛУШКИ (Оставим пока не реализуем) ===
-data class AuthSession(val username: String, val accessToken: String)
-
-class ElyByAuth {
-    fun loadSession(): AuthSession? = null
-    fun saveSession(session: AuthSession) {}
-    fun deleteSession() {}
-    suspend fun loginAsync(user: String, pass: String): AuthSession {
-        delay(1000) // Имитация запроса
-        return AuthSession(user, "token_123")
-    }
-}
-
-class MinecraftInstaller(private val buildName: String) {
-    data class InstallProgress(val progress: Float, val message: String)
-    data class LaunchResult(val success: Boolean, val errorMessage: String = "")
-
-    suspend fun ensureInstalled(version: String, type: String, onProgress: (InstallProgress) -> Unit): String {
-        for (i in 0..100 step 10) {
-            delay(200)
-            onProgress(InstallProgress(i / 100f, "Скачивание файлов... $i%"))
-        }
-        return "ver-id-$version"
-    }
-
-    suspend fun launchMinecraft(version: String, session: AuthSession): LaunchResult {
-        delay(1500)
-        return LaunchResult(true)
-    }
-}
-
-
-// === ГЛАВНОЕ ПРИЛОЖЕНИЕ И UI ===
-
+// Цвета
 val GreenPrimary = Color(0xFF1B4D2B)
 val BackgroundColor = Color(0xFFF0F0F0)
 
 enum class AppTab { Launch, Builds, Mods, Settings, Info }
 
+// Заглушка AuthSession
+data class AuthSession(val username: String, val accessToken: String)
+class ElyByAuth {
+    fun loadSession(): AuthSession? = null
+    fun saveSession(session: AuthSession) {}
+    fun deleteSession() {}
+    suspend fun loginAsync(user: String, pass: String): AuthSession {
+        delay(1000)
+        return AuthSession(user, "token_123")
+    }
+}
+
+// Загрузчик списка версий
+class VersionFetcher {
+    suspend fun getVanillaVersions(): List<String> {
+        return listOf("1.20.4", "1.20.1", "1.19.4", "1.18.2", "1.16.5", "1.12.2")
+    }
+}
+
 @Composable
 @Preview
 fun App() {
     val scope = rememberCoroutineScope()
-    // Используем реальный BuildManager, а не заглушку
+    // Инициализируем менеджеры
     val buildManager = remember { BuildManager() }
     val authClient = remember { ElyByAuth() }
+    val settingsManager = remember { SettingsManager() }
 
+    // Состояния
     var currentSession by remember { mutableStateOf(authClient.loadSession()) }
     var currentTab by remember { mutableStateOf(AppTab.Launch) }
-    var statusText by remember { mutableStateOf("Готов к запуску") }
-    // Загружаем сборки из файла при старте
     var buildList by remember { mutableStateOf(buildManager.loadBuilds()) }
+    var appSettings by remember { mutableStateOf(settingsManager.loadSettings()) }
 
-    // Состояния для диалоговых окон
+    // Диалоги
     var showLoginDialog by remember { mutableStateOf(false) }
     var showAddBuildDialog by remember { mutableStateOf(false) }
     var errorDialogMessage by remember { mutableStateOf<String?>(null) }
@@ -84,7 +71,7 @@ fun App() {
 
     MaterialTheme {
         Row(modifier = Modifier.fillMaxSize().background(BackgroundColor)) {
-            // Сайдбар
+            // === SIDEBAR ===
             Column(
                 modifier = Modifier.width(200.dp).fillMaxHeight().background(Color.White),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -100,54 +87,61 @@ fun App() {
 
                 Spacer(Modifier.weight(1f))
 
+                // Кнопка входа
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = if (currentSession != null) "User: ${currentSession!!.username}" else "Гость",
                         style = MaterialTheme.typography.caption
                     )
                     Spacer(Modifier.height(8.dp))
-                    Button(onClick = {
-                        if (currentSession != null) {
-                            currentSession = null
-                            authClient.deleteSession()
-                        } else {
-                            showLoginDialog = true
-                        }
-                    }, colors = ButtonDefaults.buttonColors(backgroundColor = GreenPrimary, contentColor = Color.White)) {
+                    Button(
+                        onClick = {
+                            if (currentSession != null) {
+                                currentSession = null
+                                authClient.deleteSession()
+                            } else {
+                                showLoginDialog = true
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(backgroundColor = GreenPrimary, contentColor = Color.White)
+                    ) {
                         Text(if (currentSession != null) "Выйти" else "Войти")
                     }
                 }
             }
 
-            // Основной контент
+            // === CONTENT ===
             Box(modifier = Modifier.weight(1f).padding(16.dp)) {
                 when (currentTab) {
-                    AppTab.Launch -> LaunchTab(buildList, currentSession) { statusText = it }
+                    // ВАЖНО: LaunchTab теперь не требует statusText
+                    AppTab.Launch -> LaunchTab(
+                        builds = buildList,
+                        session = currentSession,
+                        settings = appSettings
+                    )
+
                     AppTab.Builds -> BuildsTab(
                         builds = buildList,
                         onAddClick = { showAddBuildDialog = true },
-                        onDeleteClick = { build -> buildToDelete = build },
-                        onOpenFolderClick = { build -> openFolder(build.installPath) },
+                        onDeleteClick = { buildToDelete = it },
+                        onOpenFolderClick = { openFolder(it.installPath) },
                         onRefresh = { buildList = buildManager.loadBuilds() }
                     )
+                    AppTab.Settings -> SettingsTab(appSettings) { newSettings ->
+                        appSettings = newSettings
+                        settingsManager.saveSettings(newSettings)
+                    }
                     else -> Text("Раздел в разработке: $currentTab", style = MaterialTheme.typography.h5)
                 }
             }
         }
 
-        // Статус-бар внизу
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
-            Text(statusText, modifier = Modifier.fillMaxWidth().background(Color.LightGray).padding(4.dp))
-        }
-
-        // === Диалоговые окна ===
+        // === ДИАЛОГИ ===
         if (showLoginDialog) {
             LoginDialog(onDismiss = { showLoginDialog = false }) { user, pass ->
                 scope.launch {
-                    statusText = "Авторизация..."
                     currentSession = authClient.loginAsync(user, pass)
                     authClient.saveSession(currentSession!!)
-                    statusText = "Вход выполнен!"
                     showLoginDialog = false
                 }
             }
@@ -198,23 +192,30 @@ fun App() {
     }
 }
 
-
-// === UI Компоненты для вкладок и диалогов ===
+// === ОБНОВЛЕННАЯ LaunchTab С ПРОГРЕССОМ ===
 
 @Composable
-fun LaunchTab(builds: List<MinecraftBuild>, session: AuthSession?, onStatus: (String) -> Unit) {
+fun LaunchTab(builds: List<MinecraftBuild>, session: AuthSession?, settings: AppSettings) {
     var selectedBuild by remember { mutableStateOf(builds.firstOrNull()) }
-    var progress by remember { mutableStateOf(0f) }
     var isLaunching by remember { mutableStateOf(false) }
+    var offlineUsername by remember { mutableStateOf("testplayer") }
+
+    // Локальное состояние прогресса
+    var launchStatus by remember { mutableStateOf("Готов к запуску") }
+    var launchProgress by remember { mutableStateOf(0f) }
+
     val scope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("СБОРКА", style = MaterialTheme.typography.caption)
 
+        OutlinedTextField(value = offlineUsername, onValueChange = { offlineUsername = it }, label = { Text("Никнейм") })
+        Spacer(Modifier.height(16.dp))
+
+        // Выпадающий список
         var expanded by remember { mutableStateOf(false) }
         Box {
             Button(onClick = { expanded = true }, colors = ButtonDefaults.buttonColors(backgroundColor = Color.White)) {
-                Text(selectedBuild?.name ?: "Нет сборок")
+                Text(selectedBuild?.name ?: "Выберите сборку")
             }
             DropdownMenu(expanded, { expanded = false }) {
                 builds.forEach { b -> DropdownMenuItem({ selectedBuild = b; expanded = false }) { Text(b.name) } }
@@ -223,41 +224,60 @@ fun LaunchTab(builds: List<MinecraftBuild>, session: AuthSession?, onStatus: (St
 
         Spacer(Modifier.height(30.dp))
 
+        // Блок прогресса
         if (isLaunching) {
-            LinearProgressIndicator(progress = progress, modifier = Modifier.width(200.dp), color = GreenPrimary)
-            Text("${(progress * 100).toInt()}%")
+            Text(launchStatus, style = MaterialTheme.typography.caption)
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = launchProgress,
+                modifier = Modifier.width(300.dp).height(10.dp),
+                color = GreenPrimary
+            )
+            Spacer(Modifier.height(4.dp))
+            Text("${(launchProgress * 100).toInt()}%")
+        } else {
+            Text(launchStatus, style = MaterialTheme.typography.caption)
+            Spacer(Modifier.height(20.dp))
         }
 
         Spacer(Modifier.height(20.dp))
 
         Button(
             onClick = {
-                scope.launch {
-                    isLaunching = true
-                    try {
-                        val installer = MinecraftInstaller(selectedBuild!!.name)
-                        val ver = installer.ensureInstalled(selectedBuild!!.version, selectedBuild!!.type) {
-                            progress = it.progress
-                            onStatus(it.message)
+                if (selectedBuild != null && offlineUsername.isNotBlank()) {
+                    scope.launch {
+                        isLaunching = true
+                        launchProgress = 0f
+                        try {
+                            val installer = MinecraftInstaller(selectedBuild!!)
+                            // Передаем callback для обновления прогресса
+                            installer.launchOffline(offlineUsername, settings) { msg, progress ->
+                                launchStatus = msg
+                                launchProgress = progress
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            launchStatus = "Ошибка: ${e.message}"
+                        } finally {
+                            isLaunching = false
+                            launchStatus = "Запущено"
+                            launchProgress = 1f
                         }
-                        onStatus("Запуск игры...")
-                        installer.launchMinecraft(ver, session!!)
-                        onStatus("Игра запущена!")
-                    } catch (e: Exception) {
-                        onStatus("Ошибка: ${e.message}")
-                    } finally {
-                        isLaunching = false; progress = 0f
                     }
+                } else {
+                    launchStatus = "Выберите сборку и введите ник!"
                 }
             },
-            enabled = !isLaunching && session != null && selectedBuild != null,
+            enabled = !isLaunching && selectedBuild != null,
             modifier = Modifier.size(200.dp, 60.dp),
             colors = ButtonDefaults.buttonColors(backgroundColor = GreenPrimary, contentColor = Color.White)
         ) {
-            Text("ИГРАТЬ", style = MaterialTheme.typography.h5)
+            Text(if (isLaunching) "ЗАГРУЗКА..." else "ИГРАТЬ", style = MaterialTheme.typography.h5)
         }
     }
 }
+
+// === ОСТАЛЬНЫЕ КОМПОНЕНТЫ ===
 
 @Composable
 fun BuildsTab(
@@ -269,19 +289,70 @@ fun BuildsTab(
 ) {
     Column {
         Row(Modifier.padding(8.dp)) {
-            IconButton(onAddClick) { Icon(Icons.Default.Add, null) }
-            IconButton(onRefresh) { Icon(Icons.Default.Refresh, null) }
+            IconButton(onAddClick) { Icon(Icons.Default.Add, "Создать") }
+//            IconButton(onRefresh) { Icon(Icons.Default.Refresh, "Обновить") }
         }
         LazyColumn {
             items(builds) { build ->
                 Card(Modifier.fillMaxWidth().padding(4.dp), elevation = 2.dp) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) { Text(build.name, style = MaterialTheme.typography.h6); Text(build.version) }
+                        Column(Modifier.weight(1f)) {
+                            Text(build.name, style = MaterialTheme.typography.h6)
+                            Text("${build.version} (${build.type})", style = MaterialTheme.typography.body2)
+                        }
                         IconButton({ onOpenFolderClick(build) }) { Icon(Icons.Default.Folder, null) }
                         IconButton({ onDeleteClick(build) }) { Icon(Icons.Default.Delete, null, tint = Color.Red) }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun SettingsTab(currentSettings: AppSettings, onSave: (AppSettings) -> Unit) {
+    var ramValue by remember { mutableStateOf(currentSettings.maxRamMb.toString()) }
+    var javaArgs by remember { mutableStateOf(currentSettings.javaArgs) }
+    var envVars by remember { mutableStateOf(currentSettings.envVars) }
+
+    Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+        Text("Настройки", style = MaterialTheme.typography.h5)
+        Spacer(Modifier.height(16.dp))
+
+        Text("ОЗУ (МБ):")
+        OutlinedTextField(
+            value = ramValue,
+            onValueChange = { ramValue = it.filter { char -> char.isDigit() } },
+            label = { Text("2048") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+
+        Text("Аргументы Java:")
+        OutlinedTextField(
+            value = javaArgs,
+            onValueChange = { javaArgs = it },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+
+        Text("Переменные среды (VAR=VAL):")
+        OutlinedTextField(
+            value = envVars,
+            onValueChange = { envVars = it },
+            modifier = Modifier.fillMaxWidth().height(150.dp),
+            maxLines = 10
+        )
+        Spacer(Modifier.height(16.dp))
+
+        Button(
+            onClick = {
+                val ram = ramValue.toIntOrNull() ?: 2048
+                onSave(currentSettings.copy(maxRamMb = ram, javaArgs = javaArgs, envVars = envVars))
+            },
+            modifier = Modifier.align(Alignment.End)
+        ) {
+            Text("Сохранить")
         }
     }
 }
@@ -306,7 +377,7 @@ fun LoginDialog(onDismiss: () -> Unit, onLogin: (String, String) -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Card(Modifier.padding(16.dp)) {
             Column(Modifier.padding(16.dp)) {
-                Text("Вход Ely.by", style = MaterialTheme.typography.h6)
+                Text("Вход Ely.by (Не реализовано)", style = MaterialTheme.typography.h6)
                 TextField(u, { u = it }, label = { Text("Логин") })
                 TextField(p, { p = it }, label = { Text("Пароль") })
                 Button({ onLogin(u, p) }, Modifier.padding(top = 8.dp)) { Text("Войти") }
@@ -317,17 +388,47 @@ fun LoginDialog(onDismiss: () -> Unit, onLogin: (String, String) -> Unit) {
 
 @Composable
 fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, String) -> Unit) {
-    var n by remember { mutableStateOf("") }
-    var v by remember { mutableStateOf("1.20.1") }
-    var t by remember { mutableStateOf("Fabric") }
+    var name by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf("Vanilla") }
+    var version by remember { mutableStateOf("") }
+
+    // В реальности тут лучше использовать VersionFetcher
+    val versionsList = listOf("1.20.4", "1.20.1", "1.19.4", "1.18.2", "1.16.5", "1.12.2")
+
     Dialog(onDismissRequest = onDismiss) {
-        Card(Modifier.padding(16.dp)) {
+        Card(Modifier.padding(16.dp).height(400.dp)) {
             Column(Modifier.padding(16.dp)) {
-                Text("Новая сборка")
-                TextField(n, { n = it }, label = { Text("Название") })
-                TextField(v, { v = it }, label = { Text("Версия") })
-                TextField(t, { t = it }, label = { Text("Тип") })
-                Button({ onAdd(n, v, t) }, Modifier.padding(top = 8.dp)) { Text("Создать") }
+                Text("Новая сборка", style = MaterialTheme.typography.h6)
+                Spacer(Modifier.height(16.dp))
+                TextField(value = name, onValueChange = { name = it }, label = { Text("Название") })
+
+                Spacer(Modifier.height(8.dp))
+                Text("Тип:")
+                var typeExpanded by remember { mutableStateOf(false) }
+                Box {
+                    Button(onClick = { typeExpanded = true }) { Text(type) }
+                    DropdownMenu(typeExpanded, { typeExpanded = false }) {
+                        DropdownMenuItem({ type = "Vanilla"; typeExpanded = false }) { Text("Vanilla") }
+                        DropdownMenuItem({ type = "Fabric"; typeExpanded = false }) { Text("Fabric") }
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Text("Версия:")
+                var verExpanded by remember { mutableStateOf(false) }
+                Box {
+                    Button(onClick = { verExpanded = true }) { Text(if (version.isEmpty()) "Выбрать" else version) }
+                    DropdownMenu(verExpanded, { verExpanded = false }, modifier = Modifier.height(200.dp)) {
+                        versionsList.forEach { v ->
+                            DropdownMenuItem({ version = v; verExpanded = false }) { Text(v) }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.weight(1f))
+                Button(onClick = { onAdd(name, version, type) }, enabled = name.isNotBlank() && version.isNotBlank()) {
+                    Text("Создать")
+                }
             }
         }
     }
@@ -336,7 +437,7 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, String) -> Uni
 fun openFolder(path: String) = runCatching { Desktop.getDesktop().open(File(path)) }
 
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "EchoLauncher PreAlhpaKt") {
+    Window(onCloseRequest = ::exitApplication, title = "EchoLauncher PreAlpha") {
         App()
     }
 }
