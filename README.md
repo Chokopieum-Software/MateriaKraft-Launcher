@@ -18,3 +18,9 @@
 
   <img width="1280" height="719" alt="изображение" src="https://github.com/user-attachments/assets/c36afead-cf18-4a0c-b926-edc34c5ae28b" />
 Преальфа скриншот
+
+Сборка:
+ ./gradlew.bat packageUberJarForCurrentOS 
+Для Windows
+ ./gradlew packageUberJarForCurrentOS
+Для Linux
