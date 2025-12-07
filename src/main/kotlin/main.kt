@@ -1,4 +1,3 @@
-
 import androidx.compose.desktop.ui.tooling.preview.Preview
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,7 +23,7 @@ import java.awt.Desktop
 import java.io.File
 
 // Цвета
-val GreenPrimary = Color(0xFF1B4D2B)
+val ColorAkcent = Color(0xCDFF0000)
 val BackgroundColor = Color(0xFFF0F0F0)
 
 enum class AppTab { Launch, Builds, Mods, Settings, Info }
@@ -103,7 +102,7 @@ fun App() {
                                 showLoginDialog = true
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(backgroundColor = GreenPrimary, contentColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(backgroundColor = ColorAkcent, contentColor = Color.White)
                     ) {
                         Text(if (currentSession != null) "Выйти" else "Войти")
                     }
@@ -231,7 +230,7 @@ fun LaunchTab(builds: List<MinecraftBuild>, session: AuthSession?, settings: App
             LinearProgressIndicator(
                 progress = launchProgress,
                 modifier = Modifier.width(300.dp).height(10.dp),
-                color = GreenPrimary
+                color = ColorAkcent
             )
             Spacer(Modifier.height(4.dp))
             Text("${(launchProgress * 100).toInt()}%")
@@ -270,7 +269,7 @@ fun LaunchTab(builds: List<MinecraftBuild>, session: AuthSession?, settings: App
             },
             enabled = !isLaunching && selectedBuild != null,
             modifier = Modifier.size(200.dp, 60.dp),
-            colors = ButtonDefaults.buttonColors(backgroundColor = GreenPrimary, contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(backgroundColor = ColorAkcent, contentColor = Color.White)
         ) {
             Text(if (isLaunching) "ЗАГРУЗКА..." else "ИГРАТЬ", style = MaterialTheme.typography.h5)
         }
@@ -361,7 +360,7 @@ fun SettingsTab(currentSettings: AppSettings, onSave: (AppSettings) -> Unit) {
 fun TabButton(text: String, active: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.fillMaxWidth().height(50.dp)
-            .background(if (active) GreenPrimary else Color.Transparent)
+            .background(if (active) ColorAkcent else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(start = 16.dp),
         contentAlignment = Alignment.CenterStart
@@ -437,7 +436,7 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, String) -> Uni
 fun openFolder(path: String) = runCatching { Desktop.getDesktop().open(File(path)) }
 
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "EchoLauncher PreAlpha") {
+    Window(onCloseRequest = ::exitApplication, title = "MateriaKraft Prealpha") {
         App()
     }
 }

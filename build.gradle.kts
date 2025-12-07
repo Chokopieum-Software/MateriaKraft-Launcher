@@ -16,7 +16,7 @@ plugins {
 }
 
 group = "org.chokopieum.software"
-version = "0.1.1-prealpha"
+version = "0.1.2-prealpha"
 
 repositories {
     mavenCentral()
@@ -28,6 +28,7 @@ dependencies {
     // === UI (Compose) ===
     implementation(compose.desktop.currentOs)
     implementation(compose.materialIconsExtended)
+//    implementation(compose.material3)
     // === Асинхронность (Coroutines) ===
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
@@ -55,43 +56,20 @@ compose.desktop {
         // то строку ниже нужно заменить на: "org.chokopieum.software.MainKt"
         // Если package нет, оставь просто "MainKt"
         mainClass = "MainKt"
-
-        nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "EchoLauncher"
-            packageVersion = "1.0.0"
-
-            // Настройки для Windows (когда будет иконка)
-            windows {
-                // menuGroup = "EchoLauncher"
-
-             // upgradeUuid = "..." // сгенерируй UUID, чтобы установщик обновлял старую версию
-            }
-        }
     }
 }
-tasks.register<Jar>("fatJar") {
-    group = "build"
-    description = "Собирает универсальный JAR со всеми зависимостями."
 
-    manifest {
-        attributes["Main-Class"] = compose.desktop.application.mainClass
-    }
-
-    from(sourceSets.main.get().output)
-
-    dependsOn(configurations.runtimeClasspath)
-    from({
-        configurations.runtimeClasspath.get().flatMap { file ->
-            if (file.isDirectory) {
-                file.walkTopDown().toList()
-            } else {
-                zipTree(file)
-            }
-        }
-    })
-
-    archiveBaseName.set("EchoLauncher")
-    archiveVersion.set(project.version.toString())
-    archiveClassifier.set("all")
-}
+//        nativeDistributions {
+//            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+//            packageName = "MateriaKraft"
+//            packageVersion = "1.0.0"
+//
+//            // Настройки для Windows (когда будет иконка)
+//            windows {
+//                // menuGroup = "MateriaKraft"
+//
+//             // upgradeUuid = "..." // сгенерируй UUID, чтобы установщик обновлял старую версию
+//            }
+//        }
+//    }
+//}
