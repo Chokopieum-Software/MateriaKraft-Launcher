@@ -20,12 +20,12 @@
 Преальфа скриншот
 
 Сборка:
-``` Windows
+``` powershell
 ./gradlew.bat packageUberJarForCurrentOS 
 ```
 Для Windows
 
-``` Linux
+``` bash
 ./gradlew packageUberJarForCurrentOS
 ```
 Для Linux
