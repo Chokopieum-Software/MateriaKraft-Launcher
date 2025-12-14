@@ -1,15 +1,13 @@
-import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-
 plugins {
     // 1. Ставим актуальную версию Kotlin (2.2.20 еще нет, последняя 2.1.0)
-    kotlin("jvm") version "2.1.0"
+    kotlin("jvm") version "2.2.20"
 
     // 2. Версия плагина сериализации должна совпадать с версией Kotlin
-    kotlin("plugin.serialization") version "2.1.0"
+    kotlin("plugin.serialization") version "2.2.20"
 
     // 3. !!! ОБЯЗАТЕЛЬНО для Kotlin 2.0+: Плагин компилятора Compose
     // Его версия ТОЖЕ должна совпадать с версией Kotlin
-    kotlin("plugin.compose") version "2.1.0"
+    kotlin("plugin.compose") version "2.2.20"
 
     // 4. Сам плагин Compose Multiplatform (у него своя нумерация, актуальная 1.7.0 или 1.7.1)
     id("org.jetbrains.compose") version "1.7.1"
@@ -32,6 +30,8 @@ dependencies {
     // === Асинхронность (Coroutines) ===
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
+    implementation("org.slf4j:slf4j-simple:2.0.12")
+
 
     // === Работа с JSON (Сериализация) ===
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
