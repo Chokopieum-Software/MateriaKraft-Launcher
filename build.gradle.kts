@@ -1,3 +1,5 @@
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+
 plugins {
     // 1. Ставим актуальную версию Kotlin (2.2.20 еще нет, последняя 2.1.0)
     kotlin("jvm") version "2.2.20"
@@ -14,7 +16,7 @@ plugins {
 }
 
 group = "org.chokopieum.software"
-version = "0.1.2-prealpha"
+version = "1.0.0"
 
 repositories {
     mavenCentral()
@@ -56,20 +58,9 @@ compose.desktop {
         // то строку ниже нужно заменить на: "org.chokopieum.software.MainKt"
         // Если package нет, оставь просто "MainKt"
         mainClass = "MainKt"
+        nativeDistributions {
+            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe)
+        }
     }
 }
 
-//        nativeDistributions {
-//            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-//            packageName = "MateriaKraft"
-//            packageVersion = "1.0.0"
-//
-//            // Настройки для Windows (когда будет иконка)
-//            windows {
-//                // menuGroup = "MateriaKraft"
-//
-//             // upgradeUuid = "..." // сгенерируй UUID, чтобы установщик обновлял старую версию
-//            }
-//        }
-//    }
-//}
