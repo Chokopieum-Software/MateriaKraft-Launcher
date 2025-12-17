@@ -1,3 +1,5 @@
+package funlauncher
+
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -8,9 +10,10 @@ import kotlin.io.path.writeText
 
 @Serializable
 data class AppSettings(
-    val maxRamMb: Int = 2048, // ОЗУ
-    val javaArgs: String = "", // Например: -XX:+UseG1GC
-    val envVars: String = ""   // Например: MESA_GL_VERSION_OVERRIDE=3.3
+    val maxRamMb: Int = 2048,
+    val javaArgs: String = "",
+    val envVars: String = "",
+    val javaPath: String = "" // Путь к исполняемому файлу Java
 )
 
 class SettingsManager {

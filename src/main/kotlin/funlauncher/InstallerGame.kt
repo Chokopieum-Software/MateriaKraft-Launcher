@@ -1,3 +1,5 @@
+package funlauncher
+
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -105,7 +107,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
             maxConnectionsCount = 1000
             endpoint {
                 maxConnectionsPerRoute = 50
-                connectRetryAttempts = 3
+                connectAttempts = 3
             }
         }
         defaultRequest {
@@ -133,6 +135,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         log("Arch: ${System.getProperty("os.arch")}")
         log("Is ARM64 Mode: $isArm64Arch")
         log("Target LWJGL for ARM: $ARM_LWJGL_VERSION")
+        log("Using Java: ${settings.javaPath}")
         log("===================")
 
         if (nativesDir.exists()) nativesDir.toFile().deleteRecursively()
@@ -346,7 +349,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         cp.add(globalVersionsDir.resolve(info.id).resolve("${info.id}.jar").toAbsolutePath().toString())
 
         val args = mutableListOf<String>()
-        args.add("java")
+        args.add(settings.javaPath.ifBlank { "java" }) // Используем путь из настроек
         args.add("--enable-native-access=ALL-UNNAMED")
         args.add("-Xmx${settings.maxRamMb}M")
         args.add("-Djava.library.path=${nativesDir.toAbsolutePath()}")

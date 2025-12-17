@@ -1,18 +1,11 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
-    // 1. Ставим актуальную версию Kotlin (2.2.20 еще нет, последняя 2.1.0)
-    kotlin("jvm") version "2.2.20"
-
-    // 2. Версия плагина сериализации должна совпадать с версией Kotlin
-    kotlin("plugin.serialization") version "2.2.20"
-
-    // 3. !!! ОБЯЗАТЕЛЬНО для Kotlin 2.0+: Плагин компилятора Compose
-    // Его версия ТОЖЕ должна совпадать с версией Kotlin
-    kotlin("plugin.compose") version "2.2.20"
-
-    // 4. Сам плагин Compose Multiplatform (у него своя нумерация, актуальная 1.7.0 или 1.7.1)
-    id("org.jetbrains.compose") version "1.7.1"
+    kotlin("jvm") version "2.3.0"
+    kotlin("plugin.compose") version "2.3.0"
+    kotlin("plugin.serialization") version "2.3.0"
+    // Плагин Compose Multiplatform
+    id("org.jetbrains.compose") version "1.9.3"
 }
 
 group = "org.chokopieum.software"
@@ -30,25 +23,32 @@ dependencies {
     implementation(compose.materialIconsExtended)
 //    implementation(compose.material3)
     // === Асинхронность (Coroutines) ===
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
-    implementation("org.slf4j:slf4j-simple:2.0.12")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
+
+    // === Логгирование ===
+    implementation("org.slf4j:slf4j-simple:2.0.17")
 
 
-    // === Работа с JSON (Сериализация) ===
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     // === Сеть (HTTP Client) ===
-    implementation("io.ktor:ktor-client-core:3.0.1")
-    implementation("io.ktor:ktor-client-cio:3.0.1") // Движок для Ktor
+    // Ktor 2.3.13 - стабильная версия
+    implementation("io.ktor:ktor-client-core:2.3.13")
+    implementation("io.ktor:ktor-client-cio:2.3.13") // Движок для Ktor
     // Для автоматической работы с JSON в Ktor
-    implementation("io.ktor:ktor-client-content-negotiation:3.0.1")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.1")
+    implementation("io.ktor:ktor-client-content-negotiation:2.3.13")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.13")
+
+    // === Работа с архивами ===
+    implementation("org.apache.commons:commons-compress:1.26.2")
+    // Явно указываем безопасную версию commons-lang3 для устранения уязвимости
+    implementation("org.apache.commons:commons-lang3:3.18.0")
 }
 
 kotlin {
-    // Java 21
-    jvmToolchain(21)
+    // Java 25
+    jvmToolchain(25)
 }
 
 compose.desktop {
@@ -63,4 +63,3 @@ compose.desktop {
         }
     }
 }
-
