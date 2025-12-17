@@ -1,4 +1,3 @@
-
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -6,6 +5,9 @@ import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -19,10 +21,15 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.jar.JarFile
 import kotlin.io.path.*
+import kotlin.time.measureTime
 
 // === Модели JSON ===
+// (Оставляем как есть, они нужны для парсинга)
+private var connectRetryAttempts: Int=3
+
 @Serializable data class VersionManifest(val versions: List<VersionEntry>) {
     @Serializable data class VersionEntry(val id: String, val type: String, val url: String)
 }
@@ -48,7 +55,7 @@ import kotlin.io.path.*
         val classifiers: Map<String, Artifact>? = null
     )
 
-    @Serializable data class Artifact(val path: String, val url: String, val size: Long)
+    @Serializable data class Artifact(val path: String, val url: String, val size: Long, val sha1: String? = null)
     @Serializable data class Downloads(val client: ClientDownload)
     @Serializable data class ClientDownload(val url: String)
     @Serializable data class AssetIndexInfo(val id: String, val url: String)
@@ -71,43 +78,85 @@ sealed class JsonElementWrapper {
 
 class MinecraftInstaller(private val build: MinecraftBuild) {
     private val gameDir: Path = Paths.get(build.installPath)
-    private val globalAssetsDir: Path = Paths.get("assets")
-    private val globalVersionsDir: Path = Paths.get("versions")
-    private val globalLibrariesDir: Path = Paths.get("libraries")
+    private val launcherDataDir: Path = Paths.get(System.getProperty("user.dir")).resolve(".materialkrast")
+    private val globalAssetsDir: Path = launcherDataDir.resolve("assets")
+    private val globalVersionsDir: Path = launcherDataDir.resolve("versions")
+    private val globalLibrariesDir: Path = launcherDataDir.resolve("libraries")
     private val nativesDir: Path = globalVersionsDir.resolve(build.version).resolve("natives")
+
+    private val MAVEN_CENTRAL = "https://repo1.maven.org/maven2/"
+
+    // Принудительное использование новой библиотеки
+    private val ARM_LWJGL_VERSION = "3.3.3"
+
+    private val isArm64Arch: Boolean by lazy {
+        val arch = System.getProperty("os.arch").lowercase()
+        arch.contains("aarch64") || arch.contains("arm64")
+    }
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true; coerceInputValues = true }
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) { json(json) }
-        install(HttpTimeout) { requestTimeoutMillis = 30000; connectTimeoutMillis = 15000 }
-        defaultRequest { header("User-Agent", "EchoLauncher/1.0 (Linux ARM64)") }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 60000
+            connectTimeoutMillis = 30000
+        }
+        engine {
+            maxConnectionsCount = 1000
+            endpoint {
+                maxConnectionsPerRoute = 50
+                connectRetryAttempts = 3
+            }
+        }
+        defaultRequest {
+            header("User-Agent", "MinecraftLauncher/1.0 (Linux; ${System.getProperty("os.arch")})")
+        }
     }
 
-    suspend fun launchOffline(username: String, settings: AppSettings, onProgress: (String, Float) -> Unit) {
-        println("=== SYSTEM INFO ===")
-        println("OS: ${System.getProperty("os.name")}")
-        println("Arch: ${System.getProperty("os.arch")}")
-        println("Is ARM64 detected: ${isArm64()}")
-        println("===================")
+    private val logChannel = Channel<String>(Channel.UNLIMITED)
 
-        // Чистим natives перед каждым запуском
+    init {
+        CoroutineScope(Dispatchers.IO).launch {
+            for (message in logChannel) {
+                println("[LOG] $message")
+            }
+        }
+    }
+
+    private fun log(message: String) {
+        logChannel.trySend(message)
+    }
+
+    suspend fun launchOffline(username: String, settings: AppSettings, onProgress: (String, Float) -> Unit): Process {
+        log("=== SYSTEM INFO ===")
+        log("OS: ${System.getProperty("os.name")}")
+        log("Arch: ${System.getProperty("os.arch")}")
+        log("Is ARM64 Mode: $isArm64Arch")
+        log("Target LWJGL for ARM: $ARM_LWJGL_VERSION")
+        log("===================")
+
         if (nativesDir.exists()) nativesDir.toFile().deleteRecursively()
 
-        listOf(globalAssetsDir, globalLibrariesDir, globalVersionsDir, gameDir, nativesDir).forEach { it.createDirectories() }
+        listOf(launcherDataDir, globalAssetsDir, globalLibrariesDir, globalVersionsDir, gameDir, nativesDir).forEach {
+            it.createDirectories()
+        }
 
         onProgress("Метаданные...", 0.05f)
         val versionInfo = getVersionInfo()
 
-        onProgress("Проверка библиотек...", 0.1f)
-        downloadRequiredFiles(versionInfo, onProgress)
+        onProgress("Загрузка файлов...", 0.1f)
+        val downloadTime = measureTime {
+            downloadRequiredFiles(versionInfo, onProgress)
+        }
+        log("Downloads finished in ${downloadTime.inWholeSeconds}s")
 
-        onProgress("Распаковка драйверов...", 0.8f)
+        onProgress("Распаковка...", 0.9f)
         extractNatives(versionInfo)
 
-        onProgress("Запуск...", 0.95f)
+        onProgress("Запуск...", 1.0f)
         val command = buildLaunchCommand(versionInfo, username, settings)
 
-        println("CMD: ${command.joinToString(" ")}")
+        log("CMD length: ${command.size}")
 
         val processBuilder = ProcessBuilder(command)
         processBuilder.directory(gameDir.toFile())
@@ -127,113 +176,153 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
                 reader.lines().forEach { println("[MC]: $it") }
             }
         }.start()
-
-        onProgress("Запущено!", 1.0f)
+        return process
     }
 
     private suspend fun getVersionInfo(): VersionInfo {
         val manifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-        val manifest = try { client.get(manifestUrl).body<VersionManifest>() } catch (e: Exception) { throw Exception("Net Err: ${e.message}") }
-        val entry = manifest.versions.find { it.id == build.version } ?: throw Exception("Ver not found")
+        val manifest = client.get(manifestUrl).body<VersionManifest>()
+
+        val entry = manifest.versions.find { it.id == build.version }
+            ?: throw Exception("Version '${build.version}' not found")
+
         val jsonFile = globalVersionsDir.resolve(build.version).resolve("${build.version}.json")
-        if (!jsonFile.exists()) { jsonFile.parent.createDirectories(); jsonFile.writeBytes(client.get(entry.url).body()) }
+        if (!jsonFile.exists()) {
+            jsonFile.parent.createDirectories()
+            val bytes = client.get(entry.url).body<ByteArray>()
+            jsonFile.writeBytes(bytes)
+        }
+
         return json.decodeFromString<VersionInfo>(jsonFile.readText())
     }
 
     private suspend fun downloadRequiredFiles(info: VersionInfo, onProgress: (String, Float) -> Unit) {
         val clientJar = globalVersionsDir.resolve(info.id).resolve("${info.id}.jar")
-        downloadFile(info.downloads.client.url, clientJar)
+        downloadFile(info.downloads.client.url, clientJar, "Client JAR")
 
-        val totalLibs = info.libraries.size
-        var downloadedCount = 0
+        val libraries = info.libraries.filter { isLibraryAllowed(it) }
+        val semaphore = Semaphore(20)
+        val total = libraries.size + 1
+        val counter = AtomicInteger(0)
 
-        info.libraries.forEach { lib ->
-            if (!isLibraryAllowed(lib)) return@forEach
-
-            // 1. Скачиваем JAR с кодом
-            lib.downloads?.artifact?.let {
-                downloadFile(it.url, globalLibrariesDir.resolve(it.path))
+        libraries.map { lib ->
+            CoroutineScope(Dispatchers.IO).async {
+                semaphore.acquire()
+                try {
+                    downloadLibrary(lib)
+                } finally {
+                    semaphore.release()
+                    val c = counter.incrementAndGet()
+                    onProgress("Libs: ${lib.name.substringBefore(":")}", 0.1f + (c.toFloat() / total) * 0.4f)
+                }
             }
+        }.awaitAll()
 
-            // 2. Скачиваем Native
-            val nativeArtifact = resolveNativeArtifact(lib)
-            if (nativeArtifact != null) {
-                downloadFile(nativeArtifact.url, globalLibrariesDir.resolve(nativeArtifact.path))
-            }
+        val idxFile = globalAssetsDir.resolve("indexes").resolve("${info.assetIndex.id}.json")
+        downloadFile(info.assetIndex.url, idxFile, "Asset Index")
+        val idx = json.decodeFromString<AssetIndex>(idxFile.readText())
 
-            updateProgress(lib.name.substringBefore(":"), ++downloadedCount, totalLibs, onProgress)
+        downloadAssetsInParallel(idx, onProgress)
+    }
+
+    // === КЛЮЧЕВАЯ ЛОГИКА ПОДМЕНЫ ВЕРСИЙ ===
+
+    // Если лаунчер на ARM64 и это LWJGL - возвращаем новую версию (например 3.3.3)
+    // В противном случае возвращаем оригинальное имя из JSON
+    private fun processLwjglVersion(libName: String): String {
+        if (!isArm64Arch) return libName
+        if (!isLwjglLibrary(libName)) return libName
+
+        val parts = libName.split(":")
+        if (parts.size != 3) return libName
+
+        // Если это LWJGL и версия старая (начинается на 3.2. или 3.1.), меняем на ARM_LWJGL_VERSION
+        if (parts[2].startsWith("3.2.") || parts[2].startsWith("3.1.")) {
+            // Возвращаем: group:artifact:3.3.3
+            return "${parts[0]}:${parts[1]}:$ARM_LWJGL_VERSION"
         }
 
-        // Ассеты
-        val idxFile = globalAssetsDir.resolve("indexes").resolve("${info.assetIndex.id}.json")
-        downloadFile(info.assetIndex.url, idxFile)
-        val idx = json.decodeFromString<AssetIndex>(idxFile.readText())
-        var ac = 0
-        idx.objects.forEach { (_, asset) ->
-            val p = asset.hash.substring(0, 2)
-            val path = globalAssetsDir.resolve("objects").resolve(p).resolve(asset.hash)
-            if (!path.exists() || path.fileSize() != asset.size) {
-                downloadFile("https://resources.download.minecraft.net/$p/${asset.hash}", path)
-            }
-            if (++ac % 50 == 0) updateProgress("Assets", ac, idx.objects.size, onProgress, 0.5f)
+        return libName
+    }
+
+    // Генерирует Artifact объект на основе имени библиотеки
+    private fun getArtifactForLibrary(lib: VersionInfo.Library, isNative: Boolean): VersionInfo.Artifact? {
+        val originalName = lib.name
+        val isLwjgl = isLwjglLibrary(originalName)
+
+        // --- НОВАЯ ЛОГИКА ---
+        // Если это Linux ARM64 и библиотека LWJGL, принудительно используем Maven
+        if (isArm64Arch && getOsName() == "linux" && isLwjgl) {
+            val effectiveName = processLwjglVersion(originalName)
+            val classifier = if (isNative) "natives-linux-arm64" else null
+            return generateMavenArtifact(effectiveName, classifier)
+        }
+        // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
+        // Старая логика для всех остальных случаев
+        if (isNative) {
+            val nativeKey = lib.natives?.get(getOsName()) ?: return null
+            return lib.downloads?.classifiers?.get(nativeKey)
+        } else {
+            return lib.downloads?.artifact
+        }
+    }
+
+
+    private fun generateMavenArtifact(libName: String, classifier: String?): VersionInfo.Artifact {
+        val parts = libName.split(":")
+        val group = parts[0]
+        val artifactId = parts[1]
+        val version = parts[2]
+
+        val groupPath = group.replace('.', '/')
+        val fileName = if (classifier != null) "$artifactId-$version-$classifier.jar" else "$artifactId-$version.jar"
+        val path = "$groupPath/$artifactId/$version/$fileName"
+
+        return VersionInfo.Artifact(path, "$MAVEN_CENTRAL$path", 0)
+    }
+
+    private suspend fun downloadLibrary(lib: VersionInfo.Library) {
+        // 1. Скачиваем JAR (возможно обновленной версии)
+        getArtifactForLibrary(lib, isNative = false)?.let { artifact ->
+            val path = globalLibrariesDir.resolve(artifact.path)
+            // Пропускаем проверку хеша, если это наша сгенерированная ссылка
+            val skipHash = artifact.url.startsWith(MAVEN_CENTRAL)
+            downloadFile(artifact.url, path, "Lib: ${lib.name}", validateHash = !skipHash, expectedHash = artifact.sha1)
+        }
+
+        // 2. Скачиваем Natives (возможно обновленной версии)
+        getArtifactForLibrary(lib, isNative = true)?.let { artifact ->
+            val path = globalLibrariesDir.resolve(artifact.path)
+            val skipHash = artifact.url.startsWith(MAVEN_CENTRAL)
+            downloadFile(artifact.url, path, "Native: ${lib.name}", validateHash = !skipHash, expectedHash = artifact.sha1)
         }
     }
 
     private fun extractNatives(info: VersionInfo) {
+        log("Extracting natives...")
         info.libraries.forEach { lib ->
             if (!isLibraryAllowed(lib)) return@forEach
 
-            val nativeArtifact = resolveNativeArtifact(lib) ?: return@forEach
+            // Используем ту же логику получения артефакта, что и при скачивании
+            val nativeArtifact = getArtifactForLibrary(lib, isNative = true) ?: return@forEach
             val jarPath = globalLibrariesDir.resolve(nativeArtifact.path)
-
-            // ФИЛЬТР БЕЗОПАСНОСТИ: Если мы на ARM64, но файл называется как x64 (без arm64), НЕ распаковываем
-            if (isArm64() && jarPath.name.contains("natives-linux") && !jarPath.name.contains("arm64")) {
-                println("SKIP Extracting x64 artifact on ARM: ${jarPath.name}")
-                return@forEach
-            }
 
             if (jarPath.exists()) {
                 try {
                     JarFile(jarPath.toFile()).use { jar ->
                         jar.entries().asSequence().forEach { entry ->
-                            if (!entry.isDirectory && entry.name.endsWith(".so") && !entry.name.startsWith("META-INF")) {
-                                val out = nativesDir.resolve(entry.name.substringAfterLast('/'))
-                                Files.copy(jar.getInputStream(entry), out, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                            if (!entry.isDirectory && entry.name.endsWith(".so") && !entry.name.contains("META-INF")) {
+                                val outFile = nativesDir.resolve(entry.name.substringAfterLast('/'))
+                                Files.copy(jar.getInputStream(entry), outFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
                             }
                         }
                     }
-                } catch (e: Exception) { println("Err extract ${jarPath.name}: ${e.message}") }
+                } catch (e: Exception) {
+                    log("Failed to extract ${jarPath.name}: ${e.message}")
+                }
             }
         }
-    }
-
-    private fun resolveNativeArtifact(lib: VersionInfo.Library): VersionInfo.Artifact? {
-        val osName = getOsName()
-        val isArm64 = isArm64()
-        val nativeKey = lib.natives?.get(osName) ?: return null
-
-        if (osName == "linux" && isArm64) {
-            val armKey = "${nativeKey}-arm64"
-            val armArtifact = lib.downloads?.classifiers?.get(armKey)
-            if (armArtifact != null) return armArtifact
-            return null // Если нет ARM версии, лучше вернуть null, чем x64
-        }
-
-        return lib.downloads?.classifiers?.get(nativeKey)
-    }
-
-    private fun isLibraryAllowed(lib: VersionInfo.Library): Boolean {
-        val rules = lib.rules ?: return true
-        var allow = false
-        for (rule in rules) {
-            if (rule.action == "allow") {
-                if (rule.os == null || rule.os.name == getOsName()) allow = true
-            } else if (rule.action == "disallow") {
-                if (rule.os == null || rule.os.name == getOsName()) allow = false
-            }
-        }
-        if (rules.isEmpty()) return true
-        return allow
     }
 
     private fun buildLaunchCommand(info: VersionInfo, username: String, settings: AppSettings): List<String> {
@@ -242,24 +331,15 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         info.libraries.forEach { lib ->
             if (!isLibraryAllowed(lib)) return@forEach
 
-            // 1. Основной JAR
-            lib.downloads?.artifact?.let {
+            // Добавляем JAR в classpath. Важно: используем getArtifactForLibrary,
+            // чтобы путь указывал на новую версию (3.3.3), а не на старую (3.2.2)
+            getArtifactForLibrary(lib, isNative = false)?.let {
                 cp.add(globalLibrariesDir.resolve(it.path).toAbsolutePath().toString())
             }
 
-            // 2. Native JAR
-            resolveNativeArtifact(lib)?.let { nativeArt ->
-                val pathStr = globalLibrariesDir.resolve(nativeArt.path).toAbsolutePath().toString()
-
-                // === ГЛАВНЫЙ ФИЛЬТР БЕЗОПАСНОСТИ ===
-                // Если мы на ARM64, но путь содержит "natives-linux" и НЕ содержит "arm64",
-                // мы ЗАПРЕЩАЕМ добавлять этот файл в classpath.
-                // Это спасет игру от краша.
-                if (isArm64() && pathStr.contains("natives-linux") && !pathStr.contains("arm64")) {
-                    println("SAFETY FILTER: Removed x64 native from classpath: $pathStr")
-                } else {
-                    cp.add(pathStr)
-                }
+            // Некоторые библиотеки требуют добавления native jar в cp
+            getArtifactForLibrary(lib, isNative = true)?.let {
+                cp.add(globalLibrariesDir.resolve(it.path).toAbsolutePath().toString())
             }
         }
 
@@ -267,21 +347,35 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
 
         val args = mutableListOf<String>()
         args.add("java")
+        args.add("--enable-native-access=ALL-UNNAMED")
         args.add("-Xmx${settings.maxRamMb}M")
         args.add("-Djava.library.path=${nativesDir.toAbsolutePath()}")
+        args.add("-Dorg.lwjgl.librarypath=${nativesDir.toAbsolutePath()}")
+
         if (settings.javaArgs.isNotBlank()) args.addAll(settings.javaArgs.split(" "))
 
-        args.add("-cp"); args.add(cp.joinToString(File.pathSeparator))
+        args.add("-cp")
+        args.add(cp.joinToString(File.pathSeparator))
         args.add(info.mainClass)
 
-        if (info.gameArguments.isNotEmpty()) {
-            args.addAll(info.gameArguments.split(" "))
+        val gameArgs = if (info.gameArguments.isNotEmpty()) {
+            info.gameArguments.split(" ")
         } else {
-            args.addAll(listOf("--username", username, "--version", info.id, "--gameDir", gameDir.toAbsolutePath().toString(), "--assetsDir", globalAssetsDir.toAbsolutePath().toString(), "--assetIndex", info.assetIndex.id, "--accessToken", "0", "--userType", "legacy", "--versionType", "release", "--uuid", "00000000-0000-0000-0000-000000000000"))
+            listOf(
+                "--username", "\${auth_player_name}",
+                "--version", "\${version_name}",
+                "--gameDir", "\${game_directory}",
+                "--assetsDir", "\${assets_root}",
+                "--assetIndex", "\${assets_index_name}",
+                "--uuid", "\${auth_uuid}",
+                "--accessToken", "\${auth_access_token}",
+                "--userType", "\${user_type}",
+                "--versionType", "\${version_type}"
+            )
         }
 
-        return args.map {
-            it.replace("\${auth_player_name}", username)
+        val finalArgs = gameArgs.map { arg ->
+            arg.replace("\${auth_player_name}", username)
                 .replace("\${version_name}", info.id)
                 .replace("\${game_directory}", gameDir.toAbsolutePath().toString())
                 .replace("\${assets_root}", globalAssetsDir.toAbsolutePath().toString())
@@ -291,28 +385,98 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
                 .replace("\${user_type}", "legacy")
                 .replace("\${version_type}", "release")
         }
+        args.addAll(finalArgs)
+
+        return args
     }
 
-    private suspend fun downloadFile(url: String, path: Path) {
-        if (!path.exists()) { path.parent.createDirectories(); try { path.writeBytes(client.get(url).body()) } catch (e: Exception) { println("DL Err $url") } }
+    private suspend fun downloadFile(
+        url: String,
+        path: Path,
+        desc: String,
+        validateHash: Boolean = false,
+        expectedHash: String? = null
+    ) {
+        if (path.exists()) {
+            if (validateHash && expectedHash != null) {
+                if (path.fileSize() > 0) return
+            } else if (path.fileSize() > 0) {
+                return
+            }
+        }
+
+        try {
+            path.parent.createDirectories()
+            val resp = client.get(url)
+            if (resp.status.value == 200) {
+                path.writeBytes(resp.body())
+            } else {
+                throw Exception("HTTP ${resp.status.value}")
+            }
+        } catch (e: Exception) {
+            log("Error downloading $desc from $url: ${e.message}")
+            runCatching { path.deleteIfExists() }
+            if (!url.contains(MAVEN_CENTRAL)) throw e
+        }
     }
 
-    private fun updateProgress(item: String, current: Int, total: Int, callback: (String, Float) -> Unit, base: Float = 0.1f) {
-        val p = base + (current.toFloat() / total.toFloat()) * 0.4f
-        callback("Скачивание: $item", p)
+    private suspend fun downloadAssetsInParallel(idx: AssetIndex, onProgress: (String, Float) -> Unit) {
+        val assets = idx.objects.entries.toList()
+        val semaphore = Semaphore(50)
+        val counter = AtomicInteger(0)
+
+        assets.map { (name, asset) ->
+            CoroutineScope(Dispatchers.IO).async {
+                semaphore.acquire()
+                try {
+                    val p = asset.hash.substring(0, 2)
+                    val path = globalAssetsDir.resolve("objects").resolve(p).resolve(asset.hash)
+                    val url = "https://resources.download.minecraft.net/$p/${asset.hash}"
+
+                    if (!path.exists() || path.fileSize() != asset.size) {
+                        downloadFile(url, path, "Asset", validateHash = false)
+                    }
+                    val c = counter.incrementAndGet()
+                    if (c % 100 == 0) onProgress("Assets: $c/${assets.size}", 0.5f + (c.toFloat() / assets.size) * 0.5f)
+                } finally {
+                    semaphore.release()
+                }
+            }
+        }.awaitAll()
     }
 
-    private fun getOsName(): String { val os = System.getProperty("os.name").lowercase(); return when { os.contains("win") -> "windows"; os.contains("mac") -> "osx"; else -> "linux" } }
+    private fun isLibraryAllowed(lib: VersionInfo.Library): Boolean {
+        val rules = lib.rules ?: return true
+        if (rules.isEmpty()) return true
+        var allow = false
+        var hasMatchingRule = false
+        for (rule in rules) {
+            if (rule.os == null || rule.os.name == getOsName()) {
+                allow = rule.action == "allow"
+                hasMatchingRule = true
+            }
+        }
+        return if (hasMatchingRule) allow else false
+    }
 
-    private fun isArm64(): Boolean {
-        val arch = System.getProperty("os.arch").lowercase()
-        return arch.contains("aarch64") || arch.contains("arm64")
+    private fun isLwjglLibrary(name: String): Boolean {
+        return name.contains("lwjgl") || name.contains("java-objc-bridge")
+    }
+
+    private fun getOsName(): String {
+        val os = System.getProperty("os.name").lowercase()
+        return when {
+            os.contains("win") -> "windows"
+            os.contains("mac") -> "osx"
+            else -> "linux"
+        }
     }
 }
 
-// Заглушка сериализатора
 object JsonElementWrapperSerializer : KSerializer<JsonElementWrapper> {
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("Wrapper", PrimitiveKind.STRING)
     override fun serialize(encoder: Encoder, value: JsonElementWrapper) { }
-    override fun deserialize(decoder: Decoder): JsonElementWrapper { return JsonElementWrapper.StringValue(decoder.decodeString()) }
+    override fun deserialize(decoder: Decoder): JsonElementWrapper {
+        return JsonElementWrapper.StringValue(decoder.decodeString())
+    }
 }
