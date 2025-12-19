@@ -21,7 +21,7 @@ dependencies {
     // === UI (Compose) ===
     implementation(compose.desktop.currentOs)
     implementation(compose.materialIconsExtended)
-//    implementation(compose.material3)
+    implementation(compose.material3)
     // === Асинхронность (Coroutines) ===
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
@@ -53,13 +53,81 @@ kotlin {
 
 compose.desktop {
     application {
-        // !!! ВАЖНО !!!
-        // Если в твоем файле Main.kt написано "package org.chokopieum.software",
-        // то строку ниже нужно заменить на: "org.chokopieum.software.MainKt"
-        // Если package нет, оставь просто "MainKt"
         mainClass = "MainKt"
+
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe)
+            packageName = "materia-launcher"
+            packageVersion = "1.0.0"
+            description = "Modern launcher for Minecraft"
+            vendor = "Chokopieum Software"
+            copyright = "© 2025 Chokopieum Software"
+
+            // Настройка для Linux
+            linux {
+                appCategory = "Game"
+                // iconFile.set(project.file("src/main/resources/icon.png"))
+            }
+
+            // Настройка для Windows
+            windows {
+                menu = true
+                shortcut = true
+                upgradeUuid = "019b375c-3319-7eec-8098-e50668c43b5a"
+            }
+
+            // Логика выбора форматов в зависимости от ОС сборки
+            val osName = System.getProperty("os.name").lowercase()
+            when {
+                osName.contains("win") -> {
+                    targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+                }
+                osName.contains("linux") -> {
+                    targetFormats(TargetFormat.Deb, TargetFormat.Rpm)
+                }
+                osName.contains("mac") -> {
+                    targetFormats(TargetFormat.Dmg)
+                }
+            }
         }
+    }
+}
+
+// === ЗАДАЧА ДЛЯ СОЗДАНИЯ ПОРТАТИВНОГО TAR.GZ ===
+tasks.register<Tar>("packagePortable") {
+    group = "distribution"
+    description = "Packages the app as a portable tar.gz archive"
+
+    // Зависим от задачи создания структуры приложения
+    dependsOn("createDistributable")
+
+    // Определяем архитектуру (amd64 или aarch64)
+    val arch = System.getProperty("os.arch").let {
+        if (it == "aarch64") "arm64" else "amd64" // Нормализуем имя
+    }
+
+    // Настраиваем имя архива
+    archiveBaseName.set("materia-launcher")
+    archiveVersion.set(version.toString())
+    archiveClassifier.set("linux-$arch") // Добавляем архитектуру в имя
+    archiveExtension.set("tar.gz")
+    compression = Compression.GZIP
+
+    // Откуда брать файлы (стандартный путь output Compose)
+    val distributionDir = project.layout.buildDirectory.dir("compose/binaries/main/app")
+
+    from(distributionDir) {
+        // Сохраняем права на выполнение (chmod +x) для скриптов и бинарников
+        eachFile {
+            if (this.name.endsWith(".sh") || !this.name.contains(".")) {
+                mode = 493 // 0755 в десятичной системе
+            }
+        }
+    }
+
+    // Куда положить готовый архив
+    destinationDirectory.set(project.layout.buildDirectory.dir("compose/binaries/main/portable"))
+
+    doLast {
+        println("Portable archive created at: ${destinationDirectory.get()}/${archiveFileName.get()}")
     }
 }
