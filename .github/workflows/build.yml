@@ -15,11 +15,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Java 25
+      - name: Setup Java 25 (Compiler)
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '25'
+
+      - name: Setup Java 21 (Gradle Runner)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -41,11 +47,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Java 25
+      - name: Setup Java 25 (Compiler)
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '25'
+
+      # 2. Ставим Java 21 (чтобы на ней работал сам Gradle и не падал)
+      # Важно: этот шаг должен быть ПОСЛЕДНИМ setup-java, чтобы JAVA_HOME указывал на 21
+      - name: Setup Java 21 (Gradle Runner)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
 
       - name: Install Linux Build Deps
         run: |
