@@ -1,60 +1,104 @@
 package ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.Button
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import funlauncher.AppSettings
+import funlauncher.Theme
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsTab(
     currentSettings: AppSettings,
     onSave: (AppSettings) -> Unit,
     onOpenJavaManager: () -> Unit
 ) {
-    var ramValue by remember { mutableStateOf(currentSettings.maxRamMb.toString()) }
-    var javaArgs by remember { mutableStateOf(currentSettings.javaArgs) }
-    var envVars by remember { mutableStateOf(currentSettings.envVars) }
+    var theme by remember { mutableStateOf(currentSettings.theme) }
+    var showConsole by remember { mutableStateOf(currentSettings.showConsoleOnLaunch) }
+    var showLaunchSettingsDialog by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
-        Text("Настройки", style = MaterialTheme.typography.h5)
-        Spacer(Modifier.height(16.dp))
-        Text("ОЗУ (МБ):")
-        OutlinedTextField(
-            value = ramValue,
-            onValueChange = { ramValue = it.filter(Char::isDigit) },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(8.dp))
-        Text("Аргументы Java:")
-        OutlinedTextField(
-            value = javaArgs,
-            onValueChange = { javaArgs = it },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(8.dp))
-        Text("Переменные среды (VAR=VAL):")
-        OutlinedTextField(
-            value = envVars,
-            onValueChange = { envVars = it },
-            modifier = Modifier.fillMaxWidth().height(100.dp)
-        )
-        Spacer(Modifier.height(16.dp))
-        Button(
-            onClick = {
-                val ram = ramValue.toIntOrNull() ?: 2048
-                onSave(currentSettings.copy(maxRamMb = ram, javaArgs = javaArgs, envVars = envVars))
-            },
-            modifier = Modifier.align(Alignment.End)
-        ) { Text("Сохранить") }
-        Spacer(Modifier.weight(1f))
-        Button(onClick = onOpenJavaManager, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            Text("Управление Java")
+    // Сохраняем простые изменения при изменении
+    LaunchedEffect(theme, showConsole) {
+        onSave(currentSettings.copy(theme = theme, showConsoleOnLaunch = showConsole))
+    }
+
+    Column(modifier = Modifier.padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("Настройки", style = MaterialTheme.typography.headlineMedium)
+
+        // --- Выбор темы ---
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Внешний вид", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Box {
+                    OutlinedTextField(
+                        value = theme.name,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Тема") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Theme.values().forEach { themeOption ->
+                            DropdownMenuItem(
+                                text = { Text(themeOption.name) },
+                                onClick = {
+                                    theme = themeOption
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                    Box(modifier = Modifier.matchParentSize().clickable { expanded = !expanded })
+                }
+            }
         }
+
+        // --- Настройки запуска ---
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Запуск игры", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Запускать консоль при запуске игры", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = showConsole,
+                        onCheckedChange = { showConsole = it }
+                    )
+                }
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(onClick = onOpenJavaManager, modifier = Modifier.weight(1f)) {
+                        Text("Управление Java")
+                    }
+                    Button(onClick = { showLaunchSettingsDialog = true }, modifier = Modifier.weight(1f)) {
+                        Text("Глобальные настройки запуска")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showLaunchSettingsDialog) {
+        LaunchSettingsDialog(
+            currentSettings = currentSettings,
+            onDismiss = { showLaunchSettingsDialog = false },
+            onSave = onSave
+        )
     }
 }

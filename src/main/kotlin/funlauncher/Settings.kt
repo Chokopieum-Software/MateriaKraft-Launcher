@@ -9,11 +9,21 @@ import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
 @Serializable
+enum class Theme {
+    System, Light, Dark
+}
+
+@Serializable
 data class AppSettings(
+    // Глобальные настройки запуска по умолчанию
     val maxRamMb: Int = 2048,
     val javaArgs: String = "",
     val envVars: String = "",
-    val javaPath: String = "" // Путь к исполняемому файлу Java
+    
+    // Остальные настройки
+    val javaPath: String = "", // Глобальный путь к Java
+    val theme: Theme = Theme.System,
+    val showConsoleOnLaunch: Boolean = false
 )
 
 class SettingsManager {
