@@ -1,4 +1,6 @@
-import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+@file:Suppress("DEPRECATION")
+ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.gradle.api.tasks.bundling.Tar
 
 plugins {
     kotlin("jvm") version "2.3.0"
@@ -97,34 +99,31 @@ tasks.register<Tar>("packagePortable") {
     group = "distribution"
     description = "Packages the app as a portable tar.gz archive"
 
-    // Зависим от задачи создания структуры приложения
     dependsOn("createDistributable")
 
-    // Определяем архитектуру (amd64 или aarch64)
     val arch = System.getProperty("os.arch").let {
-        if (it == "aarch64") "arm64" else "amd64" // Нормализуем имя
+        if (it == "aarch64") "arm64" else "amd64"
     }
 
-    // Настраиваем имя архива
     archiveBaseName.set("materia-launcher")
     archiveVersion.set(version.toString())
-    archiveClassifier.set("linux-$arch") // Добавляем архитектуру в имя
+    archiveClassifier.set("linux-$arch")
     archiveExtension.set("tar.gz")
     compression = Compression.GZIP
 
-    // Откуда брать файлы (стандартный путь output Compose)
     val distributionDir = project.layout.buildDirectory.dir("compose/binaries/main/app")
 
     from(distributionDir) {
-        // Сохраняем права на выполнение (chmod +x) для скриптов и бинарников
         eachFile {
-            if (this.name.endsWith(".sh") || !this.name.contains(".")) {
-                mode = 493 // 0755 в десятичной системе
+            // Исправление: используем filePermissions { unix(...) }
+            if (name.endsWith(".sh") || !name.contains(".")) {
+                filePermissions {
+                    unix(493)
+                }
             }
         }
     }
 
-    // Куда положить готовый архив
     destinationDirectory.set(project.layout.buildDirectory.dir("compose/binaries/main/portable"))
 
     doLast {
