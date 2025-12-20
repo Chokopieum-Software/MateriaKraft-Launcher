@@ -4,7 +4,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.nio.file.Path
-import java.nio.file.Paths
 import kotlin.io.path.*
 
 @Serializable
@@ -13,23 +12,26 @@ data class MinecraftBuild(
     val version: String,
     val type: String,
     val installPath: String,
-    val createdAt: String = java.time.Instant.now().toString()
+    val createdAt: String = java.time.Instant.now().toString(),
+    // Индивидуальные настройки сборки
+    val javaPath: String? = null,
+    val maxRamMb: Int? = null,
+    val javaArgs: String? = null,
+    val envVars: String? = null
 )
 
 class BuildManager {
-    // Изменяем базовый путь на подпапку .materialkrast
-    private val launcherPath: Path = Paths.get(System.getProperty("user.dir")).resolve(".materialkrast")
+    private val launcherPath: Path = PathManager.getAppDataDirectory()
     private val instancesPath: Path = launcherPath.resolve("instances")
-    private val assetsPath: Path = launcherPath.resolve("assets")  // Добавляем путь для assets
+    private val assetsPath: Path = launcherPath.resolve("assets")
     private val buildsFilePath: Path = launcherPath.resolve("builds.json")
 
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
 
     init {
-        // Создаем все необходимые директории при инициализации
         launcherPath.createDirectories()
         instancesPath.createDirectories()
-        assetsPath.createDirectories()  // Создаем папку для ассетов
+        assetsPath.createDirectories()
     }
 
     fun loadBuilds(): List<MinecraftBuild> {
@@ -69,13 +71,38 @@ class BuildManager {
             name = name.trim(),
             version = version,
             type = type,
-            installPath = buildPath.toString()
+            installPath = buildPath.toString(),
+            javaPath = null,
+            maxRamMb = null,
+            javaArgs = null,
+            envVars = null
         )
 
         builds.add(newBuild)
         saveBuilds(builds)
 
         buildPath.createDirectories()
+    }
+
+    fun updateBuildSettings(
+        buildName: String,
+        newJavaPath: String?,
+        newMaxRam: Int?,
+        newJavaArgs: String?,
+        newEnvVars: String?
+    ) {
+        val builds = loadBuilds().toMutableList()
+        val buildIndex = builds.indexOfFirst { it.name.equals(buildName, ignoreCase = true) }
+        if (buildIndex != -1) {
+            val oldBuild = builds[buildIndex]
+            builds[buildIndex] = oldBuild.copy(
+                javaPath = newJavaPath,
+                maxRamMb = newMaxRam,
+                javaArgs = newJavaArgs,
+                envVars = newEnvVars
+            )
+            saveBuilds(builds)
+        }
     }
 
     @OptIn(ExperimentalPathApi::class)
@@ -87,7 +114,7 @@ class BuildManager {
             builds.remove(buildToRemove)
             saveBuilds(builds)
 
-            val pathToDelete = Paths.get(buildToRemove.installPath)
+            val pathToDelete = Path(buildToRemove.installPath)
             if (pathToDelete.exists()) {
                 pathToDelete.deleteRecursively()
             }
@@ -98,12 +125,10 @@ class BuildManager {
         return instancesPath.resolve(buildName)
     }
 
-    // Добавляем геттер для пути к папке assets
     fun getAssetsPath(): Path {
         return assetsPath
     }
 
-    // Добавляем геттер для корневой папки лаунчера
     fun getLauncherDataPath(): Path {
         return launcherPath
     }
