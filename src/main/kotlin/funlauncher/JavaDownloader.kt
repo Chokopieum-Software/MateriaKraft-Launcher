@@ -8,6 +8,7 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -43,44 +44,60 @@ class JavaDownloader {
             connectTimeoutMillis = 30000
         }
     }
-    private val jdksDir = Paths.get("jdks")
+    private val jdksDir = PathManager.getAppDataDirectory().resolve("jdks")
 
     private fun log(message: String) = println("[JavaDownloader] $message")
 
-    suspend fun downloadAndUnpack(version: Int, onProgress: (String, Float) -> Unit): JavaInfo? {
-        if (!jdksDir.exists()) jdksDir.createDirectories()
+    fun downloadAndUnpack(version: Int, onComplete: (Result<JavaInfo>) -> Unit) {
+        ApplicationScope.launch {
+            val task = DownloadManager.startTask("Java $version")
+            try {
+                if (!jdksDir.exists()) jdksDir.createDirectories()
 
-        onProgress("Поиск дистрибутива Java $version...", 0.05f)
-        val asset = findAsset(version) ?: throw Exception("Не удалось найти подходящий дистрибутив Java $version")
-        log("Выбран для скачивания: ${asset.name}")
+                DownloadManager.updateTask(task.id, 0.05f, "Поиск дистрибутива...")
+                val asset = findAsset(version) ?: throw Exception("Не удалось найти подходящий дистрибутив Java $version")
+                log("Выбран для скачивания: ${asset.name}")
 
-        val archivePath = jdksDir.resolve(asset.name)
-        val tempUnpackDir = jdksDir.resolve("temp_${System.currentTimeMillis()}")
-        val destDir = jdksDir.resolve("temurin-$version-jdk") // Изменено на JDK
+                val archivePath = jdksDir.resolve(asset.name)
+                val tempUnpackDir = jdksDir.resolve("temp_${System.currentTimeMillis()}")
+                val destDir = jdksDir.resolve("temurin-$version-jdk")
 
-        try {
-            log("Скачивание с ${asset.browserDownloadUrl} в ${archivePath.absolutePathString()}")
-            downloadFile(asset.browserDownloadUrl, archivePath, onProgress)
+                try {
+                    log("Скачивание с ${asset.browserDownloadUrl} в ${archivePath.absolutePathString()}")
+                    downloadFile(asset.browserDownloadUrl, archivePath) { progress, status ->
+                        DownloadManager.updateTask(task.id, progress, status)
+                    }
 
-            onProgress("Распаковка...", 0.9f)
-            log("Распаковка ${archivePath.fileName} в ${tempUnpackDir.absolutePathString()}")
-            if (destDir.exists()) destDir.toFile().deleteRecursively()
-            if (tempUnpackDir.exists()) tempUnpackDir.toFile().deleteRecursively()
-            tempUnpackDir.createDirectories()
+                    DownloadManager.updateTask(task.id, 0.9f, "Распаковка...")
+                    log("Распаковка ${archivePath.fileName} в ${tempUnpackDir.absolutePathString()}")
+                    if (destDir.exists()) destDir.toFile().deleteRecursively()
+                    if (tempUnpackDir.exists()) tempUnpackDir.toFile().deleteRecursively()
+                    tempUnpackDir.createDirectories()
 
-            unpack(archivePath, tempUnpackDir)
-            log("Перемещение из временной папки в ${destDir.absolutePathString()}")
-            moveFromNestedDirectory(tempUnpackDir, destDir)
+                    unpack(archivePath, tempUnpackDir)
+                    log("Перемещение из временной папки в ${destDir.absolutePathString()}")
+                    moveFromNestedDirectory(tempUnpackDir, destDir)
 
-            onProgress("Поиск java...", 0.99f)
-            val javaPath = findJavaIn(destDir) ?: throw Exception("Не удалось найти java в распакованной папке: $destDir")
-            log("Найден исполняемый файл: ${javaPath.absolutePathString()}")
+                    DownloadManager.updateTask(task.id, 0.99f, "Поиск java...")
+                    val javaPath = findJavaIn(destDir) ?: throw Exception("Не удалось найти java в распакованной папке: $destDir")
+                    log("Найден исполняемый файл: ${javaPath.absolutePathString()}")
 
-            return JavaManager().getJavaInfo(javaPath.toString(), isManaged = true)
-        } finally {
-            archivePath.deleteIfExists()
-            tempUnpackDir.toFile().deleteRecursively()
-            log("Очистка временных файлов завершена.")
+                    val javaInfo = JavaManager().getJavaInfo(javaPath.toString(), isManaged = true)
+                    if (javaInfo != null) {
+                        onComplete(Result.success(javaInfo))
+                    } else {
+                        throw Exception("Не удалось получить информацию о Java после установки.")
+                    }
+                } finally {
+                    archivePath.deleteIfExists()
+                    tempUnpackDir.toFile().deleteRecursively()
+                    log("Очистка временных файлов завершена.")
+                }
+            } catch (e: Exception) {
+                onComplete(Result.failure(e))
+            } finally {
+                DownloadManager.endTask(task.id)
+            }
         }
     }
 
@@ -129,7 +146,7 @@ class JavaDownloader {
         }
     }
 
-    private suspend fun downloadFile(url: String, path: Path, onProgress: (String, Float) -> Unit) {
+    private suspend fun downloadFile(url: String, path: Path, onProgress: (Float, String) -> Unit) {
         client.prepareGet(url).execute { httpResponse ->
             val channel: ByteReadChannel = httpResponse.body()
             val totalBytes = httpResponse.headers["Content-Length"]?.toLongOrNull() ?: 0L
@@ -144,10 +161,10 @@ class JavaDownloader {
                     bytesRead += read
 
                     if (totalBytes > 0) {
-                        val progress = (bytesRead.toFloat() / totalBytes.toFloat()) * 0.8f + 0.1f
-                        onProgress("Загрузка Java... ${(bytesRead / 1024 / 1024)} MB", progress)
+                        val progress = 0.1f + (bytesRead.toFloat() / totalBytes.toFloat()) * 0.8f
+                        onProgress(progress, "Загрузка... ${(bytesRead / 1024 / 1024)} MB")
                     } else {
-                        onProgress("Загрузка Java... ${(bytesRead / 1024 / 1024)} MB", 0.5f)
+                        onProgress(0.5f, "Загрузка... ${(bytesRead / 1024 / 1024)} MB")
                     }
                 }
             }

@@ -80,7 +80,7 @@ sealed class JsonElementWrapper {
 
 class MinecraftInstaller(private val build: MinecraftBuild) {
     private val gameDir: Path = Paths.get(build.installPath)
-    private val launcherDataDir: Path = Paths.get(System.getProperty("user.dir")).resolve(".materialkrast")
+    private val launcherDataDir: Path = PathManager.getAppDataDirectory()
     private val globalAssetsDir: Path = launcherDataDir.resolve("assets")
     private val globalVersionsDir: Path = launcherDataDir.resolve("versions")
     private val globalLibrariesDir: Path = launcherDataDir.resolve("libraries")
@@ -129,57 +129,76 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         logChannel.trySend(message)
     }
 
-    suspend fun launchOffline(username: String, settings: AppSettings, onProgress: (String, Float) -> Unit): Process {
-        log("=== SYSTEM INFO ===")
-        log("OS: ${System.getProperty("os.name")}")
-        log("Arch: ${System.getProperty("os.arch")}")
-        log("Is ARM64 Mode: $isArm64Arch")
-        log("Target LWJGL for ARM: $ARM_LWJGL_VERSION")
-        log("Using Java: ${settings.javaPath}")
-        log("===================")
+    suspend fun launchOffline(
+        username: String,
+        javaPath: String,
+        maxRamMb: Int,
+        javaArgs: String,
+        envVars: String,
+        showConsole: Boolean
+    ): Process {
+        val task = DownloadManager.startTask("Minecraft ${build.version}")
+        try {
+            log("=== SYSTEM INFO ===")
+            log("OS: ${System.getProperty("os.name")}")
+            log("Arch: ${System.getProperty("os.arch")}")
+            log("Is ARM64 Mode: $isArm64Arch")
+            log("Target LWJGL for ARM: $ARM_LWJGL_VERSION")
+            log("Using Java: $javaPath")
+            log("===================")
 
-        if (nativesDir.exists()) nativesDir.toFile().deleteRecursively()
+            if (nativesDir.exists()) nativesDir.toFile().deleteRecursively()
 
-        listOf(launcherDataDir, globalAssetsDir, globalLibrariesDir, globalVersionsDir, gameDir, nativesDir).forEach {
-            it.createDirectories()
-        }
-
-        onProgress("Метаданные...", 0.05f)
-        val versionInfo = getVersionInfo()
-
-        onProgress("Загрузка файлов...", 0.1f)
-        val downloadTime = measureTime {
-            downloadRequiredFiles(versionInfo, onProgress)
-        }
-        log("Downloads finished in ${downloadTime.inWholeSeconds}s")
-
-        onProgress("Распаковка...", 0.9f)
-        extractNatives(versionInfo)
-
-        onProgress("Запуск...", 1.0f)
-        val command = buildLaunchCommand(versionInfo, username, settings)
-
-        log("CMD length: ${command.size}")
-
-        val processBuilder = ProcessBuilder(command)
-        processBuilder.directory(gameDir.toFile())
-        processBuilder.redirectErrorStream(true)
-
-        if (settings.envVars.isNotBlank()) {
-            val env = processBuilder.environment()
-            settings.envVars.lines().forEach { line ->
-                val parts = line.split("=", limit = 2)
-                if (parts.size == 2 && parts[0].isNotBlank()) env[parts[0].trim()] = parts[1].trim()
+            listOf(launcherDataDir, globalAssetsDir, globalLibrariesDir, globalVersionsDir, gameDir, nativesDir).forEach {
+                it.createDirectories()
             }
-        }
 
-        val process = processBuilder.start()
-        Thread {
-            process.inputStream.bufferedReader().use { reader ->
-                reader.lines().forEach { println("[MC]: $it") }
+            DownloadManager.updateTask(task.id, 0.05f, "Получение метаданных...")
+            val versionInfo = getVersionInfo()
+
+            DownloadManager.updateTask(task.id, 0.1f, "Загрузка файлов...")
+            val downloadTime = measureTime {
+                downloadRequiredFiles(versionInfo) { progress, status ->
+                    DownloadManager.updateTask(task.id, progress, status)
+                }
             }
-        }.start()
-        return process
+            log("Downloads finished in ${downloadTime.inWholeSeconds}s")
+
+            DownloadManager.updateTask(task.id, 0.9f, "Распаковка...")
+            extractNatives(versionInfo)
+
+            DownloadManager.updateTask(task.id, 1.0f, "Запуск...")
+            val command = buildLaunchCommand(versionInfo, username, javaPath, maxRamMb, javaArgs)
+
+            log("CMD length: ${command.size}")
+
+            val processBuilder = ProcessBuilder(command)
+            processBuilder.directory(gameDir.toFile())
+            processBuilder.redirectErrorStream(true)
+
+            if (envVars.isNotBlank()) {
+                val env = processBuilder.environment()
+                envVars.lines().forEach { line ->
+                    val parts = line.split("=", limit = 2)
+                    if (parts.size == 2 && parts[0].isNotBlank()) env[parts[0].trim()] = parts[1].trim()
+                }
+            }
+
+            val process = processBuilder.start()
+            
+            if (showConsole) {
+                GameConsole.clear()
+                Thread {
+                    process.inputStream.bufferedReader().use { reader ->
+                        reader.lines().forEach { GameConsole.addLog(it) }
+                    }
+                }.start()
+            }
+
+            return process
+        } finally {
+            DownloadManager.endTask(task.id)
+        }
     }
 
     private suspend fun getVersionInfo(): VersionInfo {
@@ -199,7 +218,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         return json.decodeFromString<VersionInfo>(jsonFile.readText())
     }
 
-    private suspend fun downloadRequiredFiles(info: VersionInfo, onProgress: (String, Float) -> Unit) {
+    private suspend fun downloadRequiredFiles(info: VersionInfo, onProgress: (Float, String) -> Unit) {
         val clientJar = globalVersionsDir.resolve(info.id).resolve("${info.id}.jar")
         downloadFile(info.downloads.client.url, clientJar, "Client JAR")
 
@@ -216,7 +235,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
                 } finally {
                     semaphore.release()
                     val c = counter.incrementAndGet()
-                    onProgress("Libs: ${lib.name.substringBefore(":")}", 0.1f + (c.toFloat() / total) * 0.4f)
+                    onProgress(0.1f + (c.toFloat() / total) * 0.4f, "Libs: ${lib.name.substringBefore(":")}")
                 }
             }
         }.awaitAll()
@@ -328,7 +347,13 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         }
     }
 
-    private fun buildLaunchCommand(info: VersionInfo, username: String, settings: AppSettings): List<String> {
+    private fun buildLaunchCommand(
+        info: VersionInfo,
+        username: String,
+        javaPath: String,
+        maxRamMb: Int,
+        javaArgs: String
+    ): List<String> {
         val cp = mutableListOf<String>()
 
         info.libraries.forEach { lib ->
@@ -349,13 +374,18 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         cp.add(globalVersionsDir.resolve(info.id).resolve("${info.id}.jar").toAbsolutePath().toString())
 
         val args = mutableListOf<String>()
-        args.add(settings.javaPath.ifBlank { "java" }) // Используем путь из настроек
-        args.add("--enable-native-access=ALL-UNNAMED")
-        args.add("-Xmx${settings.maxRamMb}M")
+        args.add(javaPath.ifBlank { "java" }) // Используем путь из настроек
+
+        val javaInfo = JavaManager().getJavaInfo(javaPath)
+        if (javaInfo != null && javaInfo.version >= 17) {
+            args.add("--enable-native-access=ALL-UNNAMED")
+        }
+
+        args.add("-Xmx${maxRamMb}M")
         args.add("-Djava.library.path=${nativesDir.toAbsolutePath()}")
         args.add("-Dorg.lwjgl.librarypath=${nativesDir.toAbsolutePath()}")
 
-        if (settings.javaArgs.isNotBlank()) args.addAll(settings.javaArgs.split(" "))
+        if (javaArgs.isNotBlank()) args.addAll(javaArgs.split(" "))
 
         args.add("-cp")
         args.add(cp.joinToString(File.pathSeparator))
@@ -423,7 +453,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         }
     }
 
-    private suspend fun downloadAssetsInParallel(idx: AssetIndex, onProgress: (String, Float) -> Unit) {
+    private suspend fun downloadAssetsInParallel(idx: AssetIndex, onProgress: (Float, String) -> Unit) {
         val assets = idx.objects.entries.toList()
         val semaphore = Semaphore(50)
         val counter = AtomicInteger(0)
@@ -440,7 +470,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
                         downloadFile(url, path, "Asset", validateHash = false)
                     }
                     val c = counter.incrementAndGet()
-                    if (c % 100 == 0) onProgress("Assets: $c/${assets.size}", 0.5f + (c.toFloat() / assets.size) * 0.5f)
+                    if (c % 100 == 0) onProgress(0.5f + (c.toFloat() / assets.size) * 0.4f, "Assets: $c/${assets.size}")
                 } finally {
                     semaphore.release()
                 }

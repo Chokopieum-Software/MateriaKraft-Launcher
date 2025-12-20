@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlin.io.path.div
 
 data class JavaInfo(
     val path: String,
@@ -22,7 +23,7 @@ data class JavaInstallations(
 )
 
 class JavaManager {
-    private val jdksDir = File("jdks").absoluteFile
+    private val jdksDir = PathManager.getAppDataDirectory().resolve("jdks").toFile()
 
     fun getRecommendedJavaVersion(minecraftVersion: String): Int {
         val majorVersion = minecraftVersion.split(".")[1].toIntOrNull() ?: 0
