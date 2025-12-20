@@ -1,3 +1,4 @@
+[![Build and Release App](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/actions/workflows/build.yml/badge.svg)](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/actions/workflows/build.yml)
 **MateriaKraft Launcher** — это современный, быстрый и интуитивно понятный лаунчер для Minecraft, написанный на Kotlin. Мы стремимся создать лучший пользовательский опыт, объединяя мощный функционал с эстетикой Material Design 3.
 
 ---
