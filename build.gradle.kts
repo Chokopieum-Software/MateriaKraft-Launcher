@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "org.chokopieum.software"
-version = "1.0.0"
+version = "1.0.1"
 
 repositories {
     mavenCentral()
@@ -57,7 +57,7 @@ compose.desktop {
 
         nativeDistributions {
             packageName = "materia-launcher"
-            packageVersion = "1.0.0"
+            packageVersion = "1.0.1"
             description = "Modern launcher for Minecraft"
             vendor = "Chokopieum Software"
             copyright = "© 2025 Chokopieum Software"
