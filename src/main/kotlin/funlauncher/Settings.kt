@@ -1,5 +1,15 @@
+/*
+ * Copyright 2025 Chokopieum Software
+ *
+ * НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.
+ * Распространяется по лицензии MIT.
+ * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
+ */
+
 package funlauncher
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -30,16 +40,21 @@ class SettingsManager {
     private val settingsPath = Paths.get("settings.json")
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
 
-    fun loadSettings(): AppSettings {
-        if (!settingsPath.exists()) return AppSettings()
-        return try {
+    suspend fun loadSettings(): AppSettings = withContext(Dispatchers.IO) {
+        if (!settingsPath.exists()) return@withContext AppSettings()
+        try {
             json.decodeFromString<AppSettings>(settingsPath.readText())
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            e.printStackTrace() // Для отладки
             AppSettings()
         }
     }
 
-    fun saveSettings(settings: AppSettings) {
-        settingsPath.writeText(json.encodeToString(settings))
+    suspend fun saveSettings(settings: AppSettings) = withContext(Dispatchers.IO) {
+        try {
+            settingsPath.writeText(json.encodeToString(settings))
+        } catch (e: Exception) {
+            e.printStackTrace() // Для отладки
+        }
     }
 }

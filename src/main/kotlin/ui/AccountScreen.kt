@@ -1,3 +1,11 @@
+/*
+ * Copyright 2025 Chokopieum Software
+ *
+ * НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.
+ * Распространяется по лицензии MIT.
+ * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
+ */
+
 package ui
 
 import androidx.compose.foundation.clickable
@@ -16,7 +24,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import funlauncher.Account
 import funlauncher.AccountManager
+import funlauncher.MicrosoftAccount
 import funlauncher.OfflineAccount
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +43,8 @@ fun AccountScreen(
     var showAddOfflineAccountDialog by remember { mutableStateOf(false) }
     var accountToDelete by remember { mutableStateOf<Account?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    var isLoggingIn by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Scaffold(
@@ -60,6 +74,7 @@ fun AccountScreen(
                                 supportingContent = {
                                     when (account) {
                                         is OfflineAccount -> Text("Оффлайн")
+                                        is MicrosoftAccount -> Text("Microsoft")
                                         else -> Text("Неизвестный тип")
                                     }
                                 },
@@ -73,6 +88,9 @@ fun AccountScreen(
                         }
                     }
                 }
+                if (isLoggingIn) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                }
             }
         }
     }
@@ -85,8 +103,20 @@ fun AccountScreen(
             confirmButton = {
                 Button(onClick = {
                     showAddAccountTypeDialog = false
-                    // TODO: Реализовать добавление Mojang аккаунта
-                }) { Text("Mojang") }
+                    isLoggingIn = true
+                    coroutineScope.launch {
+                        val success = withContext(Dispatchers.IO) {
+                            accountManager.loginWithMicrosoft()
+                        }
+                        if (success) {
+                            accounts = accountManager.getAccounts()
+                            onAccountsUpdated()
+                        } else {
+                            errorMessage = "Не удалось войти через Microsoft."
+                        }
+                        isLoggingIn = false
+                    }
+                }) { Text("Microsoft") }
             },
             dismissButton = {
                 Button(onClick = {
@@ -125,7 +155,7 @@ fun AccountScreen(
                         showAddOfflineAccountDialog = false
                         errorMessage = null
                     } else {
-                        errorMessage = "Аккаунт с таким именем уже существует."
+                        errorMessage = "Аккаунт с таким именем уже существует или уже есть другой аккаунт."
                     }
                 }) { Text("Добавить") }
             },
@@ -153,6 +183,17 @@ fun AccountScreen(
             },
             dismissButton = {
                 Button(onClick = { accountToDelete = null }) { Text("Отмена") }
+            }
+        )
+    }
+
+    errorMessage?.let {
+        AlertDialog(
+            onDismissRequest = { errorMessage = null },
+            title = { Text("Ошибка") },
+            text = { Text(it) },
+            confirmButton = {
+                Button(onClick = { errorMessage = null }) { Text("OK") }
             }
         )
     }

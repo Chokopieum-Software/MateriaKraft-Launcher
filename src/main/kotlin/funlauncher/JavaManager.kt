@@ -1,7 +1,16 @@
+/*
+ * Copyright 2025 Chokopieum Software
+ *
+ * НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.
+ * Распространяется по лицензии MIT.
+ * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
+ */
+
 package funlauncher
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.div
@@ -126,33 +135,39 @@ class JavaManager {
         return false
     }
 
-    fun getJavaInfo(javaPath: String, isManaged: Boolean = false): JavaInfo? {
-        return try {
-            val process = ProcessBuilder(javaPath, "-XshowSettings:properties", "-version").start()
-            val output = process.errorStream.bufferedReader().readText()
-            process.waitFor(3, TimeUnit.SECONDS)
+    suspend fun getJavaInfo(javaPath: String, isManaged: Boolean = false): JavaInfo? = withContext(Dispatchers.IO) {
+        var process: Process? = null
+        try {
+            withTimeoutOrNull(3000) {
+                process = ProcessBuilder(javaPath, "-XshowSettings:properties", "-version").start()
+                val output = process!!.errorStream.bufferedReader().readText()
+                process!!.waitFor()
 
-            val versionString = output.lines().firstOrNull { it.contains("java.version") }?.substringAfter("=").orEmpty().trim()
-            val vendorString = output.lines().firstOrNull { it.contains("java.vendor") }?.substringAfter("=").orEmpty().trim()
-            val archString = output.lines().firstOrNull { it.contains("sun.arch.data.model") }?.substringAfter("=").orEmpty().trim()
+                val versionString = output.lines().firstOrNull { it.contains("java.version") }?.substringAfter("=").orEmpty().trim()
+                val vendorString = output.lines().firstOrNull { it.contains("java.vendor") }?.substringAfter("=").orEmpty().trim()
+                val archString = output.lines().firstOrNull { it.contains("sun.arch.data.model") }?.substringAfter("=").orEmpty().trim()
 
-            if (versionString.isEmpty()) return null
+                if (versionString.isEmpty()) return@withTimeoutOrNull null
 
-            val majorVersion = if (versionString.startsWith("1.")) {
-                versionString.substring(2, 3).toInt()
-            } else {
-                versionString.split(".")[0].toInt()
+                val majorVersion = if (versionString.startsWith("1.")) {
+                    versionString.substring(2, 3).toInt()
+                } else {
+                    versionString.split(".")[0].toInt()
+                }
+
+                JavaInfo(
+                    path = javaPath,
+                    version = majorVersion,
+                    vendor = vendorString,
+                    is64Bit = archString == "64",
+                    isManagedByLauncher = isManaged
+                )
             }
-
-            JavaInfo(
-                path = javaPath,
-                version = majorVersion,
-                vendor = vendorString,
-                is64Bit = archString == "64",
-                isManagedByLauncher = isManaged
-            )
         } catch (e: Exception) {
+            e.printStackTrace()
             null
+        } finally {
+            process?.destroyForcibly()
         }
     }
 }

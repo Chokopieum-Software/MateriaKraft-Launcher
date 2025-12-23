@@ -1,3 +1,11 @@
+/*
+ * Copyright 2025 Chokopieum Software
+ *
+ * НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.
+ * Распространяется по лицензии MIT.
+ * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
+ */
+
 package funlauncher
 
 import io.ktor.client.*
@@ -13,67 +21,69 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.descriptors.PrimitiveKind
-import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
-import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.*
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.jar.JarFile
 import kotlin.io.path.*
-import kotlin.time.measureTime
 
 // === Модели JSON ===
-// (Оставляем как есть, они нужны для парсинга)
-private var connectRetryAttempts: Int=3
 
-@Serializable data class VersionManifest(val versions: List<VersionEntry>) {
-    @Serializable data class VersionEntry(val id: String, val type: String, val url: String)
-}
+@Serializable
+data class FabricProfile(
+    val id: String,
+    val inheritsFrom: String,
+    val mainClass: String,
+    val libraries: List<VersionInfo.Library>,
+    val arguments: VersionInfo.Arguments? = null
+)
+
+@Serializable
+data class VersionProfile(
+    val id: String,
+    val inheritsFrom: String,
+    val mainClass: String,
+    val libraries: List<VersionInfo.Library>,
+    val arguments: VersionInfo.Arguments? = null
+)
 
 @Serializable data class VersionInfo(
     val id: String,
     val libraries: List<Library>,
     val mainClass: String,
-    @SerialName("minecraftArguments") val gameArguments: String = "",
+    @SerialName("minecraftArguments") val gameArguments: String? = null,
+    val arguments: Arguments? = null,
     val assets: String,
     val downloads: Downloads,
     val assetIndex: AssetIndexInfo
 ) {
     @Serializable data class Library(
         val name: String,
+        val url: String? = null, // For Fabric's custom maven
         val downloads: LibraryDownloads? = null,
         val natives: Map<String, String>? = null,
         val rules: List<Rule>? = null
     )
 
-    @Serializable data class LibraryDownloads(
-        val artifact: Artifact? = null,
-        val classifiers: Map<String, Artifact>? = null
-    )
-
+    @Serializable data class Arguments(val game: List<JsonElementWrapper> = emptyList(), val jvm: List<JsonElementWrapper> = emptyList())
+    @Serializable data class LibraryDownloads(val artifact: Artifact? = null, val classifiers: Map<String, Artifact>? = null)
     @Serializable data class Artifact(val path: String, val url: String, val size: Long, val sha1: String? = null)
     @Serializable data class Downloads(val client: ClientDownload)
     @Serializable data class ClientDownload(val url: String)
     @Serializable data class AssetIndexInfo(val id: String, val url: String)
-
     @Serializable data class Rule(val action: String, val os: OS? = null)
-    @Serializable data class OS(val name: String)
+    @Serializable data class OS(val name: String? = null) // Поле name сделано необязательным
 }
 
 @Serializable data class AssetIndex(val objects: Map<String, AssetObject>) {
     @Serializable data class AssetObject(val hash: String, val size: Long)
-}
-
-@Serializable(with = JsonElementWrapperSerializer::class)
-sealed class JsonElementWrapper {
-    data class StringValue(val value: String) : JsonElementWrapper()
-    data class ObjectValue(val value: String) : JsonElementWrapper()
 }
 
 // === Installer ===
@@ -84,116 +94,82 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
     private val globalAssetsDir: Path = launcherDataDir.resolve("assets")
     private val globalVersionsDir: Path = launcherDataDir.resolve("versions")
     private val globalLibrariesDir: Path = launcherDataDir.resolve("libraries")
-    private val nativesDir: Path = globalVersionsDir.resolve(build.version).resolve("natives")
+    private val nativesDir: Path by lazy { gameDir.resolve("natives").also { it.createDirectories() } }
 
-    private val MAVEN_CENTRAL = "https://repo1.maven.org/maven2/"
+    private val mavenCentral = "https://repo1.maven.org/maven2/"
 
-    // Принудительное использование новой библиотеки
-    private val ARM_LWJGL_VERSION = "3.3.3"
-
-    private val isArm64Arch: Boolean by lazy {
-        val arch = System.getProperty("os.arch").lowercase()
-        arch.contains("aarch64") || arch.contains("arm64")
-    }
+    private val isArm64Arch: Boolean by lazy { System.getProperty("os.arch").lowercase().contains("aarch64") }
 
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true; coerceInputValues = true }
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) { json(json) }
-        install(HttpTimeout) {
-            requestTimeoutMillis = 60000
-            connectTimeoutMillis = 30000
-        }
-        engine {
-            maxConnectionsCount = 1000
-            endpoint {
-                maxConnectionsPerRoute = 50
-                connectAttempts = 3
-            }
-        }
+        install(HttpTimeout) { requestTimeoutMillis = 60000 }
         defaultRequest {
-            header("User-Agent", "MinecraftLauncher/1.0 (Linux; ${System.getProperty("os.arch")})")
+            header("User-Agent", "MateriaKraft Launcher")
         }
     }
 
     private val logChannel = Channel<String>(Channel.UNLIMITED)
 
     init {
-        CoroutineScope(Dispatchers.IO).launch {
-            for (message in logChannel) {
-                println("[LOG] $message")
-            }
-        }
+        CoroutineScope(Dispatchers.IO).launch { for (message in logChannel) { println("[LOG] $message") } }
     }
 
-    private fun log(message: String) {
-        logChannel.trySend(message)
-    }
+    private fun log(message: String) { logChannel.trySend(message) }
 
     suspend fun launchOffline(
-        username: String,
-        javaPath: String,
-        maxRamMb: Int,
-        javaArgs: String,
-        envVars: String,
-        showConsole: Boolean
+        username: String, javaPath: String, maxRamMb: Int, javaArgs: String, envVars: String, showConsole: Boolean
     ): Process {
         val task = DownloadManager.startTask("Minecraft ${build.version}")
         try {
-            log("=== SYSTEM INFO ===")
-            log("OS: ${System.getProperty("os.name")}")
-            log("Arch: ${System.getProperty("os.arch")}")
-            log("Is ARM64 Mode: $isArm64Arch")
-            log("Target LWJGL for ARM: $ARM_LWJGL_VERSION")
-            log("Using Java: $javaPath")
-            log("===================")
-
+            log("System: ${System.getProperty("os.name")} ${System.getProperty("os.arch")}, Java: $javaPath")
             if (nativesDir.exists()) nativesDir.toFile().deleteRecursively()
-
-            listOf(launcherDataDir, globalAssetsDir, globalLibrariesDir, globalVersionsDir, gameDir, nativesDir).forEach {
-                it.createDirectories()
-            }
+            nativesDir.createDirectories()
 
             DownloadManager.updateTask(task.id, 0.05f, "Получение метаданных...")
-            val versionInfo = getVersionInfo()
+            val originalVersionInfo = getVersionInfo()
+            val versionInfo = if (isArm64Arch && getOsName() == "linux") {
+                forceLwjglVersionForArm(originalVersionInfo)
+            } else {
+                originalVersionInfo
+            }
+
 
             DownloadManager.updateTask(task.id, 0.1f, "Загрузка файлов...")
-            val downloadTime = measureTime {
-                downloadRequiredFiles(versionInfo) { progress, status ->
-                    DownloadManager.updateTask(task.id, progress, status)
-                }
+            downloadRequiredFiles(versionInfo) { progress, status ->
+                DownloadManager.updateTask(task.id, 0.1f + progress * 0.8f, status)
             }
-            log("Downloads finished in ${downloadTime.inWholeSeconds}s")
 
             DownloadManager.updateTask(task.id, 0.9f, "Распаковка...")
             extractNatives(versionInfo)
 
             DownloadManager.updateTask(task.id, 1.0f, "Запуск...")
             val command = buildLaunchCommand(versionInfo, username, javaPath, maxRamMb, javaArgs)
-
-            log("CMD length: ${command.size}")
-
-            val processBuilder = ProcessBuilder(command)
-            processBuilder.directory(gameDir.toFile())
-            processBuilder.redirectErrorStream(true)
+            val processBuilder = ProcessBuilder(command).directory(gameDir.toFile()).redirectErrorStream(true)
 
             if (envVars.isNotBlank()) {
                 val env = processBuilder.environment()
                 envVars.lines().forEach { line ->
                     val parts = line.split("=", limit = 2)
-                    if (parts.size == 2 && parts[0].isNotBlank()) env[parts[0].trim()] = parts[1].trim()
+                    if (parts.size == 2) env[parts[0].trim()] = parts[1].trim()
                 }
             }
 
-            val process = processBuilder.start()
-            
-            if (showConsole) {
-                GameConsole.clear()
-                Thread {
-                    process.inputStream.bufferedReader().use { reader ->
-                        reader.lines().forEach { GameConsole.addLog(it) }
-                    }
-                }.start()
+            val process = withContext(Dispatchers.IO) {
+                processBuilder.start()
             }
+
+            // Всегда логируем в консоль IDE
+            Thread {
+                process.inputStream.bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        println(line) // Логирование в консоль IDE
+                        if (showConsole) {
+                            GameConsole.addLog(line) // Логирование в UI консоль
+                        }
+                    }
+                }
+            }.start()
 
             return process
         } finally {
@@ -201,30 +177,198 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         }
     }
 
+    private fun forceLwjglVersionForArm(info: VersionInfo): VersionInfo {
+        log("ARM64 Linux detected. Forcing LWJGL 3.3.3 from Maven Central.")
+        val forcedVersion = "3.3.3"
+
+        val newLibraries = info.libraries.map { lib ->
+            if (!isLwjglLibrary(lib.name)) {
+                lib // Not an LWJGL lib, return as is
+            } else {
+                log("Overriding LWJGL library: ${lib.name} with version $forcedVersion")
+                val parts = lib.name.split(':')
+                val group = parts[0]
+                val artifactId = parts[1]
+                val newName = "$group:$artifactId:$forcedVersion"
+
+                // Rebuild the 'downloads' object for the new version, pointing to Maven Central
+                val mainArtifactPath = getArtifactPath(newName)
+                val mainArtifactUrl = mavenCentral + mainArtifactPath
+                val mainArtifact = VersionInfo.Artifact(path = mainArtifactPath, url = mainArtifactUrl, size = 0, sha1 = null)
+
+                val nativeClassifier = "natives-linux-arm64"
+                val nativeArtifactPath = getArtifactPath(newName, nativeClassifier)
+                val nativeArtifactUrl = mavenCentral + nativeArtifactPath
+                val nativeArtifact = VersionInfo.Artifact(path = nativeArtifactPath, url = nativeArtifactUrl, size = 0, sha1 = null)
+
+                val newClassifiers = (lib.downloads?.classifiers?.toMutableMap() ?: mutableMapOf()).also {
+                    it[nativeClassifier] = nativeArtifact
+                }
+                val newDownloads = VersionInfo.LibraryDownloads(artifact = mainArtifact, classifiers = newClassifiers)
+
+                // Create the new library object with overridden data
+                lib.copy(
+                    name = newName,
+                    downloads = newDownloads,
+                    url = mavenCentral, // Force maven central for this lib
+                    natives = (lib.natives?.toMutableMap() ?: mutableMapOf()).also {
+                        it["linux"] = nativeClassifier // Ensure natives are set correctly for linux
+                    }
+                )
+            }
+        }
+        return info.copy(libraries = newLibraries)
+    }
+
     private suspend fun getVersionInfo(): VersionInfo {
-        val manifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-        val manifest = client.get(manifestUrl).body<VersionManifest>()
+        val versionId = build.version
+        val jsonFile = globalVersionsDir.resolve(versionId).resolve("$versionId.json")
 
-        val entry = manifest.versions.find { it.id == build.version }
-            ?: throw Exception("Version '${build.version}' not found")
-
-        val jsonFile = globalVersionsDir.resolve(build.version).resolve("${build.version}.json")
-        if (!jsonFile.exists()) {
-            jsonFile.parent.createDirectories()
-            val bytes = client.get(entry.url).body<ByteArray>()
-            jsonFile.writeBytes(bytes)
+        if (jsonFile.exists()) {
+            try {
+                return json.decodeFromString<VersionInfo>(jsonFile.readText())
+            } catch (e: Exception) {
+                log("Не удалось прочитать '${jsonFile.pathString}', файл будет создан заново. Ошибка: ${e.message}")
+                jsonFile.deleteIfExists()
+            }
         }
 
-        return json.decodeFromString<VersionInfo>(jsonFile.readText())
+        val resultInfo = when (build.type) {
+            BuildType.FABRIC -> {
+                val (gameVersion, loaderVersion) = parseFabricVersion(versionId)
+                val vanillaInfo = getVanillaVersionInfo(gameVersion)
+                val fabricProfileUrl = "https://meta.fabricmc.net/v2/versions/loader/$gameVersion/$loaderVersion/profile/json"
+                val fabricProfile = client.get(fabricProfileUrl).body<FabricProfile>()
+
+                vanillaInfo.copy(
+                    id = fabricProfile.id,
+                    mainClass = fabricProfile.mainClass,
+                    libraries = fabricProfile.libraries + vanillaInfo.libraries,
+                    arguments = mergeArguments(vanillaInfo.arguments, fabricProfile.arguments),
+                    gameArguments = null
+                )
+            }
+            BuildType.FORGE -> {
+                getForgeVersionInfo(versionId)
+            }
+            BuildType.VANILLA -> {
+                getVanillaVersionInfo(versionId)
+            }
+        }
+
+        jsonFile.parent.createDirectories()
+        jsonFile.writeText(json.encodeToString(resultInfo))
+        return resultInfo
+    }
+
+    private suspend fun getForgeVersionInfo(versionId: String): VersionInfo {
+        val (gameVersion, forgeVersion) = parseForgeVersion(versionId)
+
+        // 1. Убедимся, что ванильная версия скачана
+        getVanillaVersionInfo(gameVersion)
+
+        // 2. Скачиваем установщик Forge
+        val installerUrl = "https://maven.minecraftforge.net/net/minecraftforge/forge/$gameVersion-$forgeVersion/forge-$gameVersion-$forgeVersion-installer.jar"
+        val installerJar = launcherDataDir.resolve("temp").resolve("forge-installer-$versionId.jar")
+        downloadFile(installerUrl, installerJar, "Forge Installer")
+
+        // 3. Запускаем установщик
+        runForgeInstaller(installerJar)
+
+        // 4. Ищем и читаем созданный JSON профиль
+        val modernForgeJsonPath = globalVersionsDir.resolve(versionId).resolve("$versionId.json")
+        val legacyForgeJsonPath = globalLibrariesDir.resolve("net/minecraftforge/forge/$gameVersion-$forgeVersion/forge-$gameVersion-$forgeVersion-client.json")
+
+        val profileJsonPath = when {
+            modernForgeJsonPath.exists() -> modernForgeJsonPath
+            legacyForgeJsonPath.exists() -> legacyForgeJsonPath
+            else -> throw IllegalStateException("Forge installer did not create the expected version JSON file.")
+        }
+
+        val versionProfile = json.decodeFromString<VersionProfile>(profileJsonPath.readText())
+        val vanillaInfo = getVanillaVersionInfo(versionProfile.inheritsFrom)
+
+        return vanillaInfo.copy(
+            id = versionProfile.id,
+            mainClass = versionProfile.mainClass,
+            libraries = versionProfile.libraries + vanillaInfo.libraries,
+            arguments = mergeArguments(vanillaInfo.arguments, versionProfile.arguments),
+            gameArguments = null
+        )
+    }
+
+    private suspend fun runForgeInstaller(installerJar: Path) = withContext(Dispatchers.IO) {
+        log("Running Forge installer: $installerJar")
+
+        // Создаем фейковый launcher_profiles.json
+        val fakeProfiles = launcherDataDir.resolve("launcher_profiles.json")
+        if (!fakeProfiles.exists()) {
+            log("Creating fake launcher_profiles.json to satisfy Forge installer.")
+            fakeProfiles.writeText("""{ "profiles": {} }""")
+        }
+
+        val javaPath = System.getProperty("java.home") + File.separator + "bin" + File.separator + "java"
+        val command = listOf(javaPath, "-jar", installerJar.absolutePathString(), "--installClient", launcherDataDir.absolutePathString())
+
+        val process = ProcessBuilder(command)
+            .redirectErrorStream(true)
+            .start()
+
+        process.inputStream.bufferedReader().useLines { lines ->
+            lines.forEach { log("Installer: $it") }
+        }
+
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+            throw RuntimeException("Forge installer failed with exit code $exitCode.")
+        }
+        log("Forge installer finished successfully.")
+    }
+
+    private fun mergeArguments(vanillaArgs: VersionInfo.Arguments?, fabricArgs: VersionInfo.Arguments?): VersionInfo.Arguments {
+        val game = (vanillaArgs?.game ?: emptyList()) + (fabricArgs?.game ?: emptyList())
+        val jvm = (vanillaArgs?.jvm ?: emptyList()) + (fabricArgs?.jvm ?: emptyList())
+        return VersionInfo.Arguments(game = game, jvm = jvm)
+    }
+
+    private suspend fun getVanillaVersionInfo(gameVersion: String): VersionInfo {
+        val jsonFile = globalVersionsDir.resolve(gameVersion).resolve("$gameVersion.json")
+        if (!jsonFile.exists()) {
+            val manifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+            val manifest = client.get(manifestUrl).body<VersionManifest>()
+            val entry = manifest.versions.find { it.id == gameVersion } ?: throw Exception("Base version '$gameVersion' not found")
+            val bytes = client.get(entry.url).body<ByteArray>()
+            jsonFile.parent.createDirectories()
+            jsonFile.writeBytes(bytes)
+        }
+        return json.decodeFromString(jsonFile.readText())
+    }
+
+    private fun parseFabricVersion(version: String): Pair<String, String> {
+        val parts = version.split("-fabric-")
+        return if (parts.size == 2) parts[0] to parts[1] else throw IllegalArgumentException("Invalid Fabric version string: $version")
+    }
+
+    private fun parseForgeVersion(version: String): Pair<String, String> {
+        val parts = version.split("-forge-")
+        return if (parts.size == 2) parts[0] to parts[1] else throw IllegalArgumentException("Invalid Forge version string: $version")
     }
 
     private suspend fun downloadRequiredFiles(info: VersionInfo, onProgress: (Float, String) -> Unit) {
-        val clientJar = globalVersionsDir.resolve(info.id).resolve("${info.id}.jar")
-        downloadFile(info.downloads.client.url, clientJar, "Client JAR")
+        val gameVersionForJar = when (build.type) {
+            BuildType.FABRIC -> parseFabricVersion(build.version).first
+            BuildType.FORGE -> parseForgeVersion(build.version).first
+            else -> info.id
+        }
+        val clientJarPath = globalVersionsDir.resolve(gameVersionForJar).resolve("$gameVersionForJar.jar")
+
+        if (!clientJarPath.exists()) {
+            val vanillaInfoForJar = getVanillaVersionInfo(gameVersionForJar)
+            downloadFile(vanillaInfoForJar.downloads.client.url, clientJarPath, "Client JAR")
+        }
 
         val libraries = info.libraries.filter { isLibraryAllowed(it) }
-        val semaphore = Semaphore(20)
-        val total = libraries.size + 1
+        val semaphore = Semaphore(30)
         val counter = AtomicInteger(0)
 
         libraries.map { lib ->
@@ -235,7 +379,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
                 } finally {
                     semaphore.release()
                     val c = counter.incrementAndGet()
-                    onProgress(0.1f + (c.toFloat() / total) * 0.4f, "Libs: ${lib.name.substringBefore(":")}")
+                    onProgress(c.toFloat() / libraries.size * 0.5f, "Libs: ${lib.name.substringAfterLast(':')}")
                 }
             }
         }.awaitAll()
@@ -243,213 +387,224 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         val idxFile = globalAssetsDir.resolve("indexes").resolve("${info.assetIndex.id}.json")
         downloadFile(info.assetIndex.url, idxFile, "Asset Index")
         val idx = json.decodeFromString<AssetIndex>(idxFile.readText())
-
-        downloadAssetsInParallel(idx, onProgress)
+        downloadAssetsInParallel(idx) { progress, status -> onProgress(0.5f + progress * 0.5f, status) }
     }
 
-    // === КЛЮЧЕВАЯ ЛОГИКА ПОДМЕНЫ ВЕРСИЙ ===
-
-    // Если лаунчер на ARM64 и это LWJGL - возвращаем новую версию (например 3.3.3)
-    // В противном случае возвращаем оригинальное имя из JSON
-    private fun processLwjglVersion(libName: String): String {
-        if (!isArm64Arch) return libName
-        if (!isLwjglLibrary(libName)) return libName
-
-        val parts = libName.split(":")
-        if (parts.size != 3) return libName
-
-        // Если это LWJGL и версия старая (начинается на 3.2. или 3.1.), меняем на ARM_LWJGL_VERSION
-        if (parts[2].startsWith("3.2.") || parts[2].startsWith("3.1.")) {
-            // Возвращаем: group:artifact:3.3.3
-            return "${parts[0]}:${parts[1]}:$ARM_LWJGL_VERSION"
-        }
-
-        return libName
-    }
-
-    // Генерирует Artifact объект на основе имени библиотеки
-    private fun getArtifactForLibrary(lib: VersionInfo.Library, isNative: Boolean): VersionInfo.Artifact? {
-        val originalName = lib.name
-        val isLwjgl = isLwjglLibrary(originalName)
-
-        // --- НОВАЯ ЛОГИКА ---
-        // Если это Linux ARM64 и библиотека LWJGL, принудительно используем Maven
-        if (isArm64Arch && getOsName() == "linux" && isLwjgl) {
-            val effectiveName = processLwjglVersion(originalName)
-            val classifier = if (isNative) "natives-linux-arm64" else null
-            return generateMavenArtifact(effectiveName, classifier)
-        }
-        // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
-
-        // Старая логика для всех остальных случаев
-        if (isNative) {
-            val nativeKey = lib.natives?.get(getOsName()) ?: return null
-            return lib.downloads?.classifiers?.get(nativeKey)
-        } else {
-            return lib.downloads?.artifact
-        }
-    }
-
-
-    private fun generateMavenArtifact(libName: String, classifier: String?): VersionInfo.Artifact {
-        val parts = libName.split(":")
-        val group = parts[0]
-        val artifactId = parts[1]
+    private fun getArtifactPath(name: String, classifier: String? = null): String {
+        val parts = name.split(':')
+        val groupPath = parts[0].replace('.', '/')
+        val artifactName = parts[1]
         val version = parts[2]
-
-        val groupPath = group.replace('.', '/')
-        val fileName = if (classifier != null) "$artifactId-$version-$classifier.jar" else "$artifactId-$version.jar"
-        val path = "$groupPath/$artifactId/$version/$fileName"
-
-        return VersionInfo.Artifact(path, "$MAVEN_CENTRAL$path", 0)
+        val classifierStr = if (classifier != null) "-$classifier" else ""
+        return "$groupPath/$artifactName/$version/$artifactName-$version$classifierStr.jar"
     }
 
     private suspend fun downloadLibrary(lib: VersionInfo.Library) {
-        // 1. Скачиваем JAR (возможно обновленной версии)
-        getArtifactForLibrary(lib, isNative = false)?.let { artifact ->
+        // 1. Download main artifact
+        lib.downloads?.artifact?.let { artifact ->
             val path = globalLibrariesDir.resolve(artifact.path)
-            // Пропускаем проверку хеша, если это наша сгенерированная ссылка
-            val skipHash = artifact.url.startsWith(MAVEN_CENTRAL)
-            downloadFile(artifact.url, path, "Lib: ${lib.name}", validateHash = !skipHash, expectedHash = artifact.sha1)
+            downloadFile(artifact.url, path, "Lib: ${lib.name}")
+        } ?: run {
+            // Fallback for libs without downloads info (like fabric-loader)
+            val artifactPath = getArtifactPath(lib.name)
+            val path = globalLibrariesDir.resolve(artifactPath)
+            val url = (lib.url ?: mavenCentral) + artifactPath
+            downloadFile(url, path, "Lib: ${lib.name}")
         }
 
-        // 2. Скачиваем Natives (возможно обновленной версии)
-        getArtifactForLibrary(lib, isNative = true)?.let { artifact ->
-            val path = globalLibrariesDir.resolve(artifact.path)
-            val skipHash = artifact.url.startsWith(MAVEN_CENTRAL)
-            downloadFile(artifact.url, path, "Native: ${lib.name}", validateHash = !skipHash, expectedHash = artifact.sha1)
+        // 2. Download native artifact if applicable for the current OS
+        lib.natives?.get(getOsName())?.let { nativeKey ->
+            lib.downloads?.classifiers?.get(nativeKey)?.let { nativeArtifact ->
+                val path = globalLibrariesDir.resolve(nativeArtifact.path)
+                downloadFile(nativeArtifact.url, path, "Native: ${lib.name}")
+            }
         }
     }
 
     private fun extractNatives(info: VersionInfo) {
         log("Extracting natives...")
-        info.libraries.forEach { lib ->
-            if (!isLibraryAllowed(lib)) return@forEach
+        info.libraries.filter { isLibraryAllowed(it) && it.natives != null }.forEach { lib ->
+            val nativeKey = lib.natives?.get(getOsName()) ?: return@forEach
+            val artifactPath = lib.downloads?.classifiers?.get(nativeKey)?.path ?: return@forEach
 
-            // Используем ту же логику получения артефакта, что и при скачивании
-            val nativeArtifact = getArtifactForLibrary(lib, isNative = true) ?: return@forEach
-            val jarPath = globalLibrariesDir.resolve(nativeArtifact.path)
-
+            val jarPath = globalLibrariesDir.resolve(artifactPath)
             if (jarPath.exists()) {
                 try {
                     JarFile(jarPath.toFile()).use { jar ->
-                        jar.entries().asSequence().forEach { entry ->
-                            if (!entry.isDirectory && entry.name.endsWith(".so") && !entry.name.contains("META-INF")) {
-                                val outFile = nativesDir.resolve(entry.name.substringAfterLast('/'))
-                                Files.copy(jar.getInputStream(entry), outFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                            }
+                        jar.entries().asSequence().filterNot { it.isDirectory || it.name.contains("META-INF") }.forEach { entry ->
+                            val outFile = nativesDir.resolve(entry.name.substringAfterLast('/'))
+                            Files.copy(jar.getInputStream(entry), outFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
                         }
                     }
                 } catch (e: Exception) {
                     log("Failed to extract ${jarPath.name}: ${e.message}")
                 }
+            } else {
+                log("Native JAR not found for extraction (this should have been downloaded earlier): ${jarPath.pathString}")
             }
         }
     }
 
-    private fun buildLaunchCommand(
-        info: VersionInfo,
-        username: String,
-        javaPath: String,
-        maxRamMb: Int,
-        javaArgs: String
-    ): List<String> {
-        val cp = mutableListOf<String>()
+    private fun buildLaunchCommand(info: VersionInfo, username: String, javaPath: String, maxRamMb: Int, customJavaArgs: String): List<String> {
+        // 1. Собираем Classpath
+        val cpList = mutableListOf<String>()
+        info.libraries.filter { isLibraryAllowed(it) }.forEach { lib ->
+            val path = lib.downloads?.artifact?.path ?: getArtifactPath(lib.name)
+            cpList.add(globalLibrariesDir.resolve(path).toAbsolutePath().toString())
+        }
+        val gameVersionForJar = when (build.type) {
+            BuildType.FABRIC -> parseFabricVersion(build.version).first
+            BuildType.FORGE -> parseForgeVersion(build.version).first
+            else -> info.id
+        }
+        val clientJarPath = globalVersionsDir.resolve(gameVersionForJar).resolve("$gameVersionForJar.jar")
+        cpList.add(clientJarPath.toAbsolutePath().toString())
+        val classpath = cpList.joinToString(File.pathSeparator)
 
-        info.libraries.forEach { lib ->
-            if (!isLibraryAllowed(lib)) return@forEach
+        // 2. Готовим карту замен для плейсхолдеров
+        val replacements = mapOf(
+            "natives_directory" to nativesDir.toAbsolutePath().toString(),
+            "launcher_name" to "MateriaKraft",
+            "launcher_version" to "1.0",
+            "classpath" to classpath,
+            "auth_player_name" to username,
+            "version_name" to info.id,
+            "game_directory" to gameDir.toAbsolutePath().toString(),
+            "assets_root" to globalAssetsDir.toAbsolutePath().toString(),
+            "assets_index_name" to info.assetIndex.id,
+            "auth_uuid" to UUID.nameUUIDFromBytes(username.toByteArray()).toString(),
+            "auth_access_token" to "0",
+            "user_properties" to "{}",
+            "user_type" to "msa",
+            "version_type" to build.type.name,
+            "clientid" to "clientId",
+            "auth_xuid" to "xuid",
+            "resolution_width" to "854",
+            "resolution_height" to "480"
+        )
 
-            // Добавляем JAR в classpath. Важно: используем getArtifactForLibrary,
-            // чтобы путь указывал на новую версию (3.3.3), а не на старую (3.2.2)
-            getArtifactForLibrary(lib, isNative = false)?.let {
-                cp.add(globalLibrariesDir.resolve(it.path).toAbsolutePath().toString())
+        // Функция для замены плейсхолдеров в строке
+        val replacePlaceholders = { str: String ->
+            var result = str
+            replacements.forEach { (k, v) -> result = result.replace("\${$k}", v) }
+            result
+        }
+
+        // 3. Собираем финальную команду
+        val finalCommand = mutableListOf<String>()
+        finalCommand.add(javaPath.ifBlank { "java" })
+
+        // JVM аргументы
+        finalCommand.add("-Xmx${maxRamMb}M")
+        processArguments(info.arguments?.jvm).map(replacePlaceholders).let { finalCommand.addAll(it) }
+        if (customJavaArgs.isNotBlank()) {
+            finalCommand.addAll(customJavaArgs.split(" ").map(replacePlaceholders))
+        }
+
+        // Main class
+        finalCommand.add(info.mainClass)
+
+        // Игровые аргументы
+        val gameArgsSource = info.arguments?.game ?: info.gameArguments?.split(" ")?.map { JsonElementWrapper.StringValue(it) }
+
+        val processedGameArgs = processArguments(gameArgsSource).map(replacePlaceholders)
+
+        // Фильтруем нежелательные аргументы, такие как --quickPlay и --demo
+        val finalGameArgs = mutableListOf<String>()
+        var i = 0
+        while (i < processedGameArgs.size) {
+            val arg = processedGameArgs[i]
+            when {
+                // Пропускаем --quickPlay и его значение
+                arg.startsWith("--quickPlay") -> {
+                    i += 2
+                }
+                // Пропускаем --demo и его необязательное значение (true/false)
+                arg == "--demo" -> {
+                    i++ // Пропускаем сам флаг --demo
+                    // Если следующий аргумент это 'true' или 'false', пропускаем и его
+                    if (i < processedGameArgs.size && (processedGameArgs[i].equals("true", ignoreCase = true) || processedGameArgs[i].equals("false", ignoreCase = true))) {
+                        i++
+                    }
+                }
+                else -> {
+                    finalGameArgs.add(arg)
+                    i++
+                }
             }
+        }
+        finalCommand.addAll(finalGameArgs)
 
-            // Некоторые библиотеки требуют добавления native jar в cp
-            getArtifactForLibrary(lib, isNative = true)?.let {
-                cp.add(globalLibrariesDir.resolve(it.path).toAbsolutePath().toString())
+        log("--- LAUNCH COMMAND ---")
+        log(finalCommand.joinToString(" "))
+        log("----------------------")
+
+        return finalCommand
+    }
+
+
+    private fun processArguments(args: List<JsonElementWrapper>?): List<String> {
+        return args?.flatMap { wrapper ->
+            when (wrapper) {
+                is JsonElementWrapper.StringValue -> listOf(wrapper.value)
+                is JsonElementWrapper.ObjectValue -> if (isRuleApplicable(wrapper.rules)) wrapper.getValues() else emptyList()
+            }
+        } ?: emptyList()
+    }
+
+    private fun isRuleApplicable(rules: List<VersionInfo.Rule>): Boolean {
+        if (rules.isEmpty()) return true
+
+        var applies = false
+        for (rule in rules) {
+            val osRule = rule.os
+            if (osRule == null || osRule.name == null || osRule.name == getOsName()) {
+                applies = rule.action == "allow"
             }
         }
-
-        cp.add(globalVersionsDir.resolve(info.id).resolve("${info.id}.jar").toAbsolutePath().toString())
-
-        val args = mutableListOf<String>()
-        args.add(javaPath.ifBlank { "java" }) // Используем путь из настроек
-
-        val javaInfo = JavaManager().getJavaInfo(javaPath)
-        if (javaInfo != null && javaInfo.version >= 17) {
-            args.add("--enable-native-access=ALL-UNNAMED")
-        }
-
-        args.add("-Xmx${maxRamMb}M")
-        args.add("-Djava.library.path=${nativesDir.toAbsolutePath()}")
-        args.add("-Dorg.lwjgl.librarypath=${nativesDir.toAbsolutePath()}")
-
-        if (javaArgs.isNotBlank()) args.addAll(javaArgs.split(" "))
-
-        args.add("-cp")
-        args.add(cp.joinToString(File.pathSeparator))
-        args.add(info.mainClass)
-
-        val gameArgs = if (info.gameArguments.isNotEmpty()) {
-            info.gameArguments.split(" ")
-        } else {
-            listOf(
-                "--username", "\${auth_player_name}",
-                "--version", "\${version_name}",
-                "--gameDir", "\${game_directory}",
-                "--assetsDir", "\${assets_root}",
-                "--assetIndex", "\${assets_index_name}",
-                "--uuid", "\${auth_uuid}",
-                "--accessToken", "\${auth_access_token}",
-                "--userType", "\${user_type}",
-                "--versionType", "\${version_type}"
-            )
-        }
-
-        val finalArgs = gameArgs.map { arg ->
-            arg.replace("\${auth_player_name}", username)
-                .replace("\${version_name}", info.id)
-                .replace("\${game_directory}", gameDir.toAbsolutePath().toString())
-                .replace("\${assets_root}", globalAssetsDir.toAbsolutePath().toString())
-                .replace("\${assets_index_name}", info.assetIndex.id)
-                .replace("\${auth_uuid}", "00000000-0000-0000-0000-000000000000")
-                .replace("\${auth_access_token}", "null")
-                .replace("\${user_type}", "legacy")
-                .replace("\${version_type}", "release")
-        }
-        args.addAll(finalArgs)
-
-        return args
+        return applies
     }
 
     private suspend fun downloadFile(
         url: String,
         path: Path,
         desc: String,
-        validateHash: Boolean = false,
-        expectedHash: String? = null
+        extraHeaders: Map<String, String> = emptyMap()
     ) {
-        if (path.exists()) {
-            if (validateHash && expectedHash != null) {
-                if (path.fileSize() > 0) return
-            } else if (path.fileSize() > 0) {
-                return
-            }
+        if (path.exists() && path.fileSize() > 0) {
+            // log("File already exists, skipping: $desc") // Too verbose
+            return
         }
 
-        try {
-            path.parent.createDirectories()
-            val resp = client.get(url)
-            if (resp.status.value == 200) {
-                path.writeBytes(resp.body())
-            } else {
+        val maxRetries = 3
+        val retryDelay = 3000L // 3 seconds
+
+        for (attempt in 1..maxRetries) {
+            try {
+                log("Downloading $desc (attempt $attempt/$maxRetries)...")
+                path.parent.createDirectories()
+                val resp = client.get(url) {
+                    extraHeaders.forEach { (key, value) -> header(key, value) }
+                }
+
+                if (resp.status.value == 200) {
+                    path.writeBytes(resp.body())
+                    log("Successfully downloaded $desc")
+                    return // Success
+                }
+
                 throw Exception("HTTP ${resp.status.value}")
+
+            } catch (e: Exception) {
+                runCatching { path.deleteIfExists() } // Clean up partial file
+                log("Error downloading $desc from $url: ${e.message}")
+                if (attempt < maxRetries) {
+                    log("Retrying in ${retryDelay / 1000} seconds...")
+                    delay(retryDelay)
+                } else {
+                    throw e // Re-throw on the last attempt
+                }
             }
-        } catch (e: Exception) {
-            log("Error downloading $desc from $url: ${e.message}")
-            runCatching { path.deleteIfExists() }
-            if (!url.contains(MAVEN_CENTRAL)) throw e
         }
     }
 
@@ -457,20 +612,17 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         val assets = idx.objects.entries.toList()
         val semaphore = Semaphore(50)
         val counter = AtomicInteger(0)
-
-        assets.map { (name, asset) ->
+        assets.map { (_, asset) ->
             CoroutineScope(Dispatchers.IO).async {
                 semaphore.acquire()
                 try {
                     val p = asset.hash.substring(0, 2)
                     val path = globalAssetsDir.resolve("objects").resolve(p).resolve(asset.hash)
-                    val url = "https://resources.download.minecraft.net/$p/${asset.hash}"
-
                     if (!path.exists() || path.fileSize() != asset.size) {
-                        downloadFile(url, path, "Asset", validateHash = false)
+                        downloadFile("https://resources.download.minecraft.net/$p/${asset.hash}", path, "Asset")
                     }
                     val c = counter.incrementAndGet()
-                    if (c % 100 == 0) onProgress(0.5f + (c.toFloat() / assets.size) * 0.4f, "Assets: $c/${assets.size}")
+                    if (c % 100 == 0) onProgress(c.toFloat() / assets.size, "Assets: $c/${assets.size}")
                 } finally {
                     semaphore.release()
                 }
@@ -479,37 +631,49 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
     }
 
     private fun isLibraryAllowed(lib: VersionInfo.Library): Boolean {
-        val rules = lib.rules ?: return true
-        if (rules.isEmpty()) return true
-        var allow = false
-        var hasMatchingRule = false
-        for (rule in rules) {
-            if (rule.os == null || rule.os.name == getOsName()) {
-                allow = rule.action == "allow"
-                hasMatchingRule = true
-            }
-        }
-        return if (hasMatchingRule) allow else false
+        return isRuleApplicable(lib.rules ?: emptyList())
     }
 
-    private fun isLwjglLibrary(name: String): Boolean {
-        return name.contains("lwjgl") || name.contains("java-objc-bridge")
+    private fun isLwjglLibrary(name: String): Boolean = name.startsWith("org.lwjgl")
+    private fun getOsName(): String = when {
+        System.getProperty("os.name").lowercase().contains("win") -> "windows"
+        System.getProperty("os.name").lowercase().contains("mac") -> "osx"
+        else -> "linux"
     }
+}
 
-    private fun getOsName(): String {
-        val os = System.getProperty("os.name").lowercase()
-        return when {
-            os.contains("win") -> "windows"
-            os.contains("mac") -> "osx"
-            else -> "linux"
+@Serializable(with = JsonElementWrapperSerializer::class)
+sealed class JsonElementWrapper {
+    @Serializable data class StringValue(val value: String) : JsonElementWrapper()
+    @Serializable data class ObjectValue(val rules: List<VersionInfo.Rule>, val value: JsonElement) : JsonElementWrapper() {
+        fun getValues(): List<String> = when (value) {
+            is JsonPrimitive -> listOf(value.content)
+            is JsonArray -> value.map { (it as JsonPrimitive).content }
+            else -> emptyList()
         }
     }
 }
 
 object JsonElementWrapperSerializer : KSerializer<JsonElementWrapper> {
-    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("Wrapper", PrimitiveKind.STRING)
-    override fun serialize(encoder: Encoder, value: JsonElementWrapper) { }
+    override val descriptor = buildClassSerialDescriptor("JsonElementWrapper")
+
+    override fun serialize(encoder: Encoder, value: JsonElementWrapper) {
+        val jsonEncoder = encoder as? JsonEncoder ?: throw kotlinx.serialization.SerializationException("This serializer can be used only with JSON")
+        val json = jsonEncoder.json
+        when (value) {
+            is JsonElementWrapper.StringValue -> jsonEncoder.encodeJsonElement(JsonPrimitive(value.value))
+            is JsonElementWrapper.ObjectValue -> jsonEncoder.encodeJsonElement(json.encodeToJsonElement(value))
+        }
+    }
+
     override fun deserialize(decoder: Decoder): JsonElementWrapper {
-        return JsonElementWrapper.StringValue(decoder.decodeString())
+        val jsonDecoder = decoder as? JsonDecoder ?: throw kotlinx.serialization.SerializationException("This serializer can be used only with JSON")
+        val json = jsonDecoder.json
+
+        return when (val element = jsonDecoder.decodeJsonElement()) {
+            is JsonPrimitive -> JsonElementWrapper.StringValue(element.content)
+            is JsonObject -> json.decodeFromJsonElement<JsonElementWrapper.ObjectValue>(element)
+            else -> throw kotlinx.serialization.SerializationException("Unexpected JSON element type for JsonElementWrapper: $element")
+        }
     }
 }

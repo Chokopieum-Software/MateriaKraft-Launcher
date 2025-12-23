@@ -27,6 +27,10 @@ dependencies {
     // === Асинхронность (Coroutines) ===
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
+    implementation("com.microsoft.azure:msal4j:1.14.0")
+    implementation("com.github.javakeyring:java-keyring:1.0.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.code.gson:gson:2.10.1")
 
     // === Логгирование ===
     implementation("org.slf4j:slf4j-simple:2.0.17")

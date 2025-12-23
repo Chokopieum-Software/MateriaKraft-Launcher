@@ -1,12 +1,28 @@
-import androidx.compose.foundation.background
+/*
+ * Copyright 2025 Chokopieum Software
+ *
+ * НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.
+ * Распространяется по лицензии MIT.
+ * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
+ */
+
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -20,11 +36,11 @@ import java.awt.Desktop
 import java.io.File
 import java.lang.management.ManagementFactory
 
-val BackgroundColor = Color(0xFFF0F0F0)
+val BackgroundColor = Color(0xffaedddd) // Пастельно-мятный
 
 enum class AppTab { Home, Mods, Settings }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun App() {
     val scope = rememberCoroutineScope()
@@ -35,8 +51,8 @@ fun App() {
     val javaDownloader = remember { JavaDownloader() }
 
     var currentTab by remember { mutableStateOf(AppTab.Home) }
-    var buildList by remember { mutableStateOf(buildManager.loadBuilds()) }
-    var appSettings by remember { mutableStateOf(settingsManager.loadSettings()) }
+    var buildList by remember { mutableStateOf<List<MinecraftBuild>>(emptyList()) }
+    var appSettings by remember { mutableStateOf<AppSettings?>(null) }
     var accounts by remember { mutableStateOf(accountManager.getAccounts()) }
     var currentAccount by remember { mutableStateOf(accounts.firstOrNull()) }
 
@@ -58,8 +74,17 @@ fun App() {
     var showCheckmark by remember { mutableStateOf(false) }
 
     fun refreshBuilds() {
-        buildList = buildManager.loadBuilds()
+        scope.launch {
+            buildList = buildManager.loadBuilds()
+        }
     }
+
+    // Асинхронная загрузка настроек и сборок при старте
+    LaunchedEffect(Unit) {
+        appSettings = settingsManager.loadSettings()
+        refreshBuilds()
+    }
+
 
     LaunchedEffect(DownloadManager.tasks.size) {
         if (DownloadManager.tasks.isEmpty() && !showCheckmark) {
@@ -85,30 +110,30 @@ fun App() {
         }
     }
 
-    suspend fun launchMinecraft(build: MinecraftBuild, settings: AppSettings) {
+    suspend fun launchMinecraft(build: MinecraftBuild, javaPath: String) {
+        if (appSettings == null) return // Не запускаем, если настройки еще не загружены
         try {
-            if (settings.showConsoleOnLaunch) {
+            if (appSettings!!.showConsoleOnLaunch) {
                 showGameConsole = true
             }
             val installer = MinecraftInstaller(build)
-            val finalJavaPath = build.javaPath ?: settings.javaPath
-            val finalMaxRam = build.maxRamMb ?: settings.maxRamMb
-            val finalJavaArgs = build.javaArgs ?: settings.javaArgs
-            val finalEnvVars = build.envVars ?: settings.envVars
+            val finalMaxRam = build.maxRamMb ?: appSettings!!.maxRamMb
+            val finalJavaArgs = build.javaArgs ?: appSettings!!.javaArgs
+            val finalEnvVars = build.envVars ?: appSettings!!.envVars
 
             val process = installer.launchOffline(
                 username = currentAccount!!.username,
-                javaPath = finalJavaPath,
+                javaPath = javaPath,
                 maxRamMb = finalMaxRam,
                 javaArgs = finalJavaArgs,
                 envVars = finalEnvVars,
-                showConsole = settings.showConsoleOnLaunch
+                showConsole = appSettings!!.showConsoleOnLaunch
             )
             gameProcess = process
-            isLaunchingBuildId = null
         } catch (e: Exception) {
             e.printStackTrace()
             errorDialogMessage = "Ошибка запуска: ${e.message}"
+        } finally {
             isLaunchingBuildId = null
         }
     }
@@ -117,21 +142,27 @@ fun App() {
         selectedBuild = build
         isLaunchingBuildId = build.name
         scope.launch {
-            val javaPath = build.javaPath ?: appSettings.javaPath
-            if (javaPath.isBlank()) {
+            if (appSettings == null) return@launch
+            // Определяем, нужно ли авто-определение Java
+            val useAutoJava = build.javaPath == "" || (build.javaPath == null && appSettings!!.javaPath.isBlank())
+
+            if (useAutoJava) {
+                // Логика автоматического поиска и скачивания Java
                 val recommendedVersion = javaManager.getRecommendedJavaVersion(build.version)
-                val installations = javaManager.findJavaInstallations()
+                val installations = javaManager.findJavaInstallations() // Теперь это suspend-функция
                 val allJavas = installations.launcher + installations.system
                 val exactJava = allJavas.firstOrNull { it.version == recommendedVersion && it.is64Bit }
 
                 if (exactJava != null) {
-                    launchMinecraft(build, appSettings.copy(javaPath = exactJava.path))
+                    // Нашли подходящую версию, запускаем
+                    launchMinecraft(build, exactJava.path)
                 } else {
+                    // Не нашли, скачиваем
                     javaDownloader.downloadAndUnpack(recommendedVersion) { result ->
                         scope.launch {
                             result.fold(
                                 onSuccess = { downloadedJava ->
-                                    launchMinecraft(build, appSettings.copy(javaPath = downloadedJava.path))
+                                    launchMinecraft(build, downloadedJava.path)
                                 },
                                 onFailure = {
                                     errorDialogMessage = "Не удалось скачать Java: ${it.message}"
@@ -142,12 +173,15 @@ fun App() {
                     }
                 }
             } else {
-                launchMinecraft(build, appSettings)
+                // Используем указанный путь к Java
+                val finalJavaPath = build.javaPath ?: appSettings!!.javaPath
+                launchMinecraft(build, finalJavaPath)
             }
         }
     }
 
     val onLaunchClick: (MinecraftBuild) -> Unit = onLaunchClick@{ build ->
+        if (appSettings == null) return@onLaunchClick
         if (currentAccount == null) {
             errorDialogMessage = "Сначала выберите аккаунт!"
             return@onLaunchClick
@@ -159,7 +193,7 @@ fun App() {
 
         val osBean = ManagementFactory.getOperatingSystemMXBean() as OperatingSystemMXBean
         val freeMemory = osBean.freeMemorySize / (1024 * 1024)
-        val allocatedRam = build.maxRamMb ?: appSettings.maxRamMb
+        val allocatedRam = build.maxRamMb ?: appSettings!!.maxRamMb
 
         if (allocatedRam > freeMemory) {
             showRamWarningDialog = build
@@ -190,12 +224,33 @@ fun App() {
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Spacer(Modifier.height(8.dp))
-                        ExtendedFloatingActionButton(
-                            onClick = { showAccountScreen = true },
-                            modifier = Modifier.padding(vertical = 8.dp),
-                            text = { Text(currentAccount?.username ?: "Аккаунт") },
-                            icon = { Icon(Icons.Default.Person, contentDescription = "Аккаунты") }
-                        )
+                        TooltipArea(
+                            tooltip = {
+                                Surface(
+                                    modifier = Modifier.padding(4.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                    shadowElevation = 4.dp
+                                ) {
+                                    Text(
+                                        text = currentAccount?.username ?: "Выбрать аккаунт",
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                }
+                            }
+                        ) {
+                            IconButton(
+                                onClick = { showAccountScreen = true },
+                                modifier = Modifier.padding(vertical = 8.dp).size(48.dp)
+                            ) {
+                                Image(
+                                    painter = painterResource("steve_head.png"),
+                                    contentDescription = "Аккаунты",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(8.dp))
+                                )
+                            }
+                        }
                         NavigationRailItem(
                             selected = currentTab == AppTab.Home,
                             onClick = { currentTab = AppTab.Home },
@@ -224,9 +279,12 @@ fun App() {
                                 icon = {
                                     when {
                                         showCheckmark -> Icon(Icons.Default.Check, contentDescription = "Загрузка завершена")
-                                        hasActiveDownloads -> CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.dp
+                                        hasActiveDownloads -> BeautifulCircularProgressIndicator(
+                                            size = 24.dp,
+                                            strokeWidth = 3.dp,
+                                            // Можно настроить цвета под твой "пастельно-мятный" стиль
+                                            primaryColor = Color(0xFF2196F3),
+                                            secondaryColor = Color(0xFF00E5FF)
                                         )
                                         else -> Icon(Icons.Default.Download, contentDescription = "Загрузки")
                                     }
@@ -242,27 +300,35 @@ fun App() {
                 }
             }
 
-            Box(modifier = Modifier.weight(1f).padding(16.dp)) {
-                when (currentTab) {
-                    AppTab.Home -> HomeScreen(
-                        builds = buildList,
-                        runningBuild = if (isGameRunning) selectedBuild else null,
-                        onLaunchClick = onLaunchClick,
-                        onOpenFolderClick = { openFolder(it.installPath) },
-                        onAddBuildClick = { showAddBuildDialog = true },
-                        isLaunchingBuildId = isLaunchingBuildId,
-                        onDeleteBuildClick = onDeleteBuildClick,
-                        onSettingsBuildClick = onSettingsBuildClick
-                    )
-                    AppTab.Mods -> Text("Раздел 'Моды' в разработке", style = MaterialTheme.typography.headlineMedium)
-                    AppTab.Settings -> SettingsTab(
-                        currentSettings = appSettings,
-                        onSave = { newSettings ->
-                            appSettings = newSettings
-                            settingsManager.saveSettings(newSettings)
-                        },
-                        onOpenJavaManager = { showJavaManagerWindow = true }
-                    )
+            Box(modifier = Modifier.weight(1f)) {
+                if (appSettings == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    when (currentTab) {
+                        AppTab.Home -> HomeScreen(
+                            builds = buildList,
+                            runningBuild = if (isGameRunning) selectedBuild else null,
+                            onLaunchClick = onLaunchClick,
+                            onOpenFolderClick = { openFolder(it.installPath) },
+                            onAddBuildClick = { showAddBuildDialog = true },
+                            isLaunchingBuildId = isLaunchingBuildId,
+                            onDeleteBuildClick = onDeleteBuildClick,
+                            onSettingsBuildClick = onSettingsBuildClick
+                        )
+                        AppTab.Mods -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Раздел 'Моды' в разработке", style = MaterialTheme.typography.headlineMedium)
+                        }
+                        AppTab.Settings -> SettingsTab(
+                            currentSettings = appSettings!!,
+                            onSave = { newSettings ->
+                                appSettings = newSettings
+                                scope.launch { settingsManager.saveSettings(newSettings) }
+                            },
+                            onOpenJavaManager = { showJavaManagerWindow = true }
+                        )
+                    }
                 }
             }
         }
@@ -277,28 +343,48 @@ fun App() {
         if (showAddBuildDialog) {
             AddBuildDialog(
                 onDismiss = { showAddBuildDialog = false },
-                onAdd = { n, v, t ->
-                    try {
-                        buildManager.addBuild(n, v, t)
-                        refreshBuilds()
-                        showAddBuildDialog = false
-                    } catch (e: Exception) {
-                        errorDialogMessage = e.message
+                onAdd = { name, version, type ->
+                    scope.launch {
+                        try {
+                            buildManager.addBuild(name, version, type)
+                            refreshBuilds()
+                            showAddBuildDialog = false
+                        } catch (e: Exception) {
+                            errorDialogMessage = e.message
+                        }
                     }
                 }
             )
         }
-        showBuildSettingsScreen?.let { build ->
-            BuildSettingsScreen(
-                build = build,
-                globalSettings = appSettings,
-                onDismiss = { showBuildSettingsScreen = null },
-                onSave = { javaPath, maxRam, javaArgs, envVars ->
-                    buildManager.updateBuildSettings(build.name, javaPath, maxRam, javaArgs, envVars)
-                    refreshBuilds()
-                    showBuildSettingsScreen = null
-                }
-            )
+        if (appSettings != null) {
+            showBuildSettingsScreen?.let { build ->
+                BuildSettingsScreen(
+                    build = build,
+                    globalSettings = appSettings!!,
+                    onDismiss = { showBuildSettingsScreen = null },
+                    onSave = { newName, newVersion, newType, newImagePath, javaPath, maxRam, javaArgs, envVars ->
+                        scope.launch {
+                            try {
+                                buildManager.updateBuildSettings(
+                                    oldName = build.name,
+                                    newName = newName,
+                                    newVersion = newVersion,
+                                    newType = newType,
+                                    newImagePath = newImagePath,
+                                    newJavaPath = javaPath,
+                                    newMaxRam = maxRam,
+                                    newJavaArgs = javaArgs,
+                                    newEnvVars = envVars
+                                )
+                                refreshBuilds()
+                                showBuildSettingsScreen = null
+                            } catch (e: Exception) {
+                                errorDialogMessage = e.message
+                            }
+                        }
+                    }
+                )
+            }
         }
         if (showAccountScreen) {
             AccountScreen(
@@ -349,9 +435,11 @@ fun App() {
                 confirmButton = {
                     Button(
                         onClick = {
-                            buildManager.deleteBuild(it.name)
-                            refreshBuilds()
-                            buildToDelete = null
+                            scope.launch {
+                                buildManager.deleteBuild(it.name)
+                                refreshBuilds()
+                                buildToDelete = null
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                     ) { Text("Удалить") }
@@ -362,10 +450,50 @@ fun App() {
     }
 }
 
+
+@Composable
+fun BeautifulCircularProgressIndicator(
+    modifier: Modifier = Modifier,
+    size: androidx.compose.ui.unit.Dp = 24.dp,
+    strokeWidth: androidx.compose.ui.unit.Dp = 3.dp,
+    primaryColor: Color = MaterialTheme.colorScheme.primary,
+    secondaryColor: Color = MaterialTheme.colorScheme.tertiary
+) {
+    val transition = rememberInfiniteTransition()
+
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing)
+        )
+    )
+
+    Canvas(modifier = modifier.size(size)) {
+        // Теперь rotate вызывается правильно, без длинного пути
+        rotate(rotation) {
+            drawCircle(
+                brush = Brush.sweepGradient(
+                    listOf(
+                        Color.Transparent,
+                        primaryColor.copy(alpha = 0.5f),
+                        primaryColor,
+                        secondaryColor
+                    )
+                ),
+                radius = size.toPx() / 2 - strokeWidth.toPx() / 2,
+                style = Stroke(
+                    width = strokeWidth.toPx(),
+                    cap = StrokeCap.Round
+                )
+            )
+        }
+    }
+}
 fun openFolder(path: String) = runCatching { Desktop.getDesktop().open(File(path)) }
 
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "MateriaKraft") {
+    Window(onCloseRequest = ::exitApplication, title = "Materia") {
         App()
     }
 }
