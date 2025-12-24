@@ -45,6 +45,7 @@ fun AccountScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     var isLoggingIn by remember { mutableStateOf(false) }
+    var showBrowserLoginDialog by remember { mutableStateOf(false) }
 
     val hasLicensedAccount = remember(accounts) { accountManager.hasLicensedAccount() }
 
@@ -96,6 +97,18 @@ fun AccountScreen(
         }
     }
 
+    if (showBrowserLoginDialog) {
+        Dialog(onDismissRequest = {}) {
+            Surface(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Продолжите в браузере...")
+                }
+            }
+        }
+    }
+
     if (showAddAccountTypeDialog) {
         AlertDialog(
             onDismissRequest = { showAddAccountTypeDialog = false },
@@ -105,10 +118,12 @@ fun AccountScreen(
                 Button(onClick = {
                     showAddAccountTypeDialog = false
                     isLoggingIn = true
+                    showBrowserLoginDialog = true
                     coroutineScope.launch {
                         val success = withContext(Dispatchers.IO) {
                             accountManager.loginWithMicrosoft()
                         }
+                        showBrowserLoginDialog = false
                         if (success) {
                             accounts = accountManager.getAccounts()
                             onAccountsUpdated()

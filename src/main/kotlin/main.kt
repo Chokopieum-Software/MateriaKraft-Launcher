@@ -242,9 +242,8 @@ fun App() {
                                 onClick = { showAccountScreen = true },
                                 modifier = Modifier.padding(vertical = 8.dp).size(48.dp)
                             ) {
-                                Image(
-                                    painter = painterResource("steve_head.png"),
-                                    contentDescription = "Аккаунты",
+                                AvatarImage(
+                                    account = currentAccount,
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .clip(RoundedCornerShape(8.dp))
@@ -493,7 +492,10 @@ fun BeautifulCircularProgressIndicator(
 fun openFolder(path: String) = runCatching { Desktop.getDesktop().open(File(path)) }
 
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "Materia") {
+    Window(onCloseRequest = {
+        ImageLoader.close()
+        exitApplication()
+    }, title = "Materia") {
         App()
     }
 }
