@@ -46,6 +46,8 @@ fun AccountScreen(
     val coroutineScope = rememberCoroutineScope()
     var isLoggingIn by remember { mutableStateOf(false) }
 
+    val hasLicensedAccount = remember(accounts) { accountManager.hasLicensedAccount() }
+
     Dialog(onDismissRequest = onDismiss) {
         Scaffold(
             topBar = {
@@ -75,7 +77,6 @@ fun AccountScreen(
                                     when (account) {
                                         is OfflineAccount -> Text("Оффлайн")
                                         is MicrosoftAccount -> Text("Microsoft")
-                                        else -> Text("Неизвестный тип")
                                     }
                                 },
                                 trailingContent = {
@@ -119,10 +120,13 @@ fun AccountScreen(
                 }) { Text("Microsoft") }
             },
             dismissButton = {
-                Button(onClick = {
-                    showAddAccountTypeDialog = false
-                    showAddOfflineAccountDialog = true
-                }) { Text("Оффлайн") }
+                Button(
+                    onClick = {
+                        showAddAccountTypeDialog = false
+                        showAddOfflineAccountDialog = true
+                    },
+                    enabled = hasLicensedAccount
+                ) { Text("Оффлайн") }
             }
         )
     }
@@ -155,7 +159,7 @@ fun AccountScreen(
                         showAddOfflineAccountDialog = false
                         errorMessage = null
                     } else {
-                        errorMessage = "Аккаунт с таким именем уже существует или уже есть другой аккаунт."
+                        errorMessage = "Не удалось добавить аккаунт. Возможно, аккаунт с таким именем уже существует или у вас нет лицензионного аккаунта."
                     }
                 }) { Text("Добавить") }
             },

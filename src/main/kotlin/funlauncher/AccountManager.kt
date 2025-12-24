@@ -6,11 +6,9 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-// В будущем как авторизация через учетную запись Microsoft будет реализована, будут наложены ограничения
-// Без лицензии создание оффлайн учеток будет ограничено
-
 package funlauncher
 
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
@@ -56,16 +54,17 @@ class AccountManager {
         }
     }
 
+    fun hasLicensedAccount(): Boolean {
+        return accounts.any { it.isLicensed }
+    }
+
     fun addAccount(account: Account): Boolean {
-        // Загружаем актуальный список аккаунтов перед проверкой
         loadAccounts()
 
-        // Проверяем, есть ли уже аккаунты. Если есть, не позволяем добавить новый.
-        if (accounts.isNotEmpty()) {
-            return false // Уже есть один аккаунт, добавление нового запрещено
+        if (account is OfflineAccount && !hasLicensedAccount()) {
+            return false // Запрещаем добавлять оффлайн-аккаунт, если нет лицензионного
         }
 
-        // Проверяем на дубликаTы имен (хотя при ограничении в 1 аккаунт это менее критично)
         if (accounts.any { it.username.equals(account.username, ignoreCase = true) }) {
             return false // Аккаунт с таким именем уже существует
         }
@@ -83,7 +82,8 @@ class AccountManager {
                 username = profile.name,
                 uuid = profile.id,
                 accessToken = profile.accessToken,
-                skinUrl = profile.skinUrl
+                skinUrl = profile.skinUrl,
+                isLicensed = true
             )
             addAccount(account)
         } catch (e: Exception) {
