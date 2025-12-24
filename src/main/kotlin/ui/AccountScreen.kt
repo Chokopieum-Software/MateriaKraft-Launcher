@@ -70,7 +70,7 @@ fun AccountScreen(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(accounts) { account ->
+                        items(accounts, key = { it.uuid }) { account ->
                             ListItem(
                                 headlineContent = { Text(account.username) },
                                 supportingContent = {
