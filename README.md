@@ -1,5 +1,84 @@
 [![Build and Release App](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/actions/workflows/build.yml/badge.svg)](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/actions/workflows/build.yml)
 
+**MateriaKraft Launcher** is a modern, fast, and intuitive Minecraft launcher written in Kotlin. We aim to create the best user experience by combining powerful functionality with the aesthetics of Material Design 3.
+
+---
+NOT AN OFFICIAL MINECRAFT [PRODUCT/SERVICE/EVENT, etc.]. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT
+
+---
+## ✨ Key Features
+
+- 🎨 **Material Design 3**: A modern and responsive interface with support for dynamic colors.
+- 🚀 **Performance**: Written in Kotlin to ensure high-speed performance.
+- 🛠 **Auto-installation of Loaders**: Support for Forge, Fabric, Quilt, and NeoForge in just a few clicks (in development).
+- 📦 **Modpacks**: Automatic installation of popular modpacks directly from the interface.
+- 🌍 **Cross-platform**: Stable operation on Windows, Linux, and macOS.
+
+---
+
+## 🚧 Project Status: Alpha
+
+The project is in the **early alpha stage**. This means:
+- Bugs and instability are possible.
+- Functionality is actively being added and changed.
+- We are open to suggestions and bug reports!
+
+---
+
+## 📸 Screenshots
+<img width="1274" height="728" alt="Screenshot_20251219_225859" src="https://github.com/user-attachments/assets/3c23f64b-3da8-49c9-adda-09336c125bdc" />
+<img width="1143" height="589" alt="Screenshot_20251219_225927" src="https://github.com/user-attachments/assets/fe8f13f7-102a-48f5-bf36-ff3e4bb09505" />
+<img width="1141" height="593" alt="Screenshot_20251219_230001" src="https://github.com/user-attachments/assets/b9816bb2-ca8f-426f-b42c-51e58b806bef" />
+
+
+---
+
+## 🛠 Technology Stack
+
+- **Language**: [Kotlin](https://kotlinlang.org/)
+- **UI Framework**: [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/)
+- **Build**: Gradle
+- **Design**: Material Design 3
+
+---
+
+## 🚀 How to Run (for developers)
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your_username/MateriaKraft-Launcher.git
+   ```
+2. Open the project in **IntelliJ IDEA**.
+3. Wait for Gradle to import.
+4. Run the task:
+   ```bash
+   ./gradlew run
+   ```
+
+---
+
+## 🗺 Roadmap
+
+- [ ] Implement an account system (Microsoft/Offline).
+- [x] Download and launch vanilla versions of the game.
+- [ ] Integration with CurseForge/Modrinth API.
+- [x] RAM allocation management system.
+- [ ] Full localization (RU/EN).
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. See the `LICENSE` file for more information.
+
+---
+*Developed with ❤️, by Chokopieum.*
+
+---
+---
+
+[![Build and Release App](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/actions/workflows/build.yml/badge.svg)](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/actions/workflows/build.yml)
+
 **MateriaKraft Launcher** — это современный, быстрый и интуитивно понятный лаунчер для Minecraft, написанный на Kotlin. Мы стремимся создать лучший пользовательский опыт, объединяя мощный функционал с эстетикой Material Design 3.
 
 ---
@@ -73,4 +152,3 @@
 
 ---
 *Разработано с ❤️, by Chokopieum.*
-
