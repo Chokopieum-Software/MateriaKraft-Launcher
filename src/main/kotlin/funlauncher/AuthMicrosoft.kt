@@ -32,7 +32,7 @@ class MateriaAuthenticator {
     private val gson = Gson()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    // Настройка хранилища токенов (как в прошлом примере)
+    // Настройка хранилища токенов
     private val tokenCacheAspect = object : ITokenCacheAccessAspect {
         val service = "MateriaLauncher"
         val accountKey = "MateriaAuthCache"
