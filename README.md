@@ -46,7 +46,7 @@ The project is in the **early alpha stage**. This means:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your_username/MateriaKraft-Launcher.git
+   https://github.com/Chokopieum-Software/MateriaKraft-Launcher.git
    ```
 2. Open the project in **IntelliJ IDEA**.
 3. Wait for Gradle to import.
