@@ -59,7 +59,7 @@ The project is in the **early alpha stage**. This means:
 
 ## 🗺 Roadmap
 
-- [ ] Implement an account system (Microsoft/Offline).
+- [x] Implement an account system (Microsoft/Offline).
 - [x] Download and launch vanilla versions of the game.
 - [ ] Integration with CurseForge/Modrinth API.
 - [x] RAM allocation management system.
@@ -138,7 +138,7 @@ Distributed under the MIT License. See the `LICENSE` file for more information.
 
 ## 🗺 Дорожная карта (Roadmap)
 
-- [ ] Реализация системы аккаунтов (Microsoft/Offline).
+- [x] Реализация системы аккаунтов (Microsoft/Offline).
 - [x] Загрузка и запуск ванильных версий игры.
 - [ ] Интеграция с CurseForge/Modrinth API.
 - [x] Система управления выделением оперативной памяти.
