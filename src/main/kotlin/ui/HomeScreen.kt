@@ -35,6 +35,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import funlauncher.Account
 import funlauncher.MinecraftBuild
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -50,13 +51,54 @@ fun HomeScreen(
     onAddBuildClick: () -> Unit,
     isLaunchingBuildId: String?,
     onDeleteBuildClick: (MinecraftBuild) -> Unit,
-    onSettingsBuildClick: (MinecraftBuild) -> Unit
+    onSettingsBuildClick: (MinecraftBuild) -> Unit,
+    currentAccount: Account?,
+    onOpenAccountManager: () -> Unit
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredBuilds = builds.filter { it.name.contains(searchQuery, ignoreCase = true) }
+
     Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(onClick = onAddBuildClick) {
-                Icon(Icons.Default.Add, contentDescription = "Добавить сборку")
-            }
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Поиск...") },
+                            modifier = Modifier.width(350.dp).height(50.dp),
+                            singleLine = true,
+                            shape = RoundedCornerShape(50),
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Поиск") },
+                            colors = TextFieldDefaults.colors(
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor = Color.Transparent
+                            )
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        FilledTonalButton(onClick = onAddBuildClick) {
+                            Text("Создать")
+                        }
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onOpenAccountManager) {
+                        AvatarImage(
+                            account = currentAccount,
+                            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
         },
         containerColor = Color.Transparent
     ) { paddingValues ->
@@ -67,7 +109,7 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(builds) { build ->
+            items(filteredBuilds) { build ->
                 BuildCard(
                     build = build,
                     isRunning = build == runningBuild,
@@ -97,13 +139,10 @@ private fun BuildCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
-    // Состояние для хранения изображения
     var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
-    // Логика асинхронной загрузки изображения
     LaunchedEffect(build.imagePath) {
         if (build.imagePath != null) {
-            // Переходим в IO поток для работы с файлами
             withContext(Dispatchers.IO) {
                 val file = File(build.imagePath)
                 if (file.exists()) {
@@ -127,45 +166,33 @@ private fun BuildCard(
     Card(
         modifier = Modifier
             .hoverable(interactionSource)
-            .fillMaxWidth()
-            .aspectRatio(16 / 10f)
-            .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(12.dp)),
+            .fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp, hoveredElevation = 8.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp, hoveredElevation = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // --- ФОН ---
-            Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f)) {
                 if (imageBitmap != null) {
-                    // Отображаем картинку
                     Image(
                         bitmap = imageBitmap!!,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
-                    // Затемнение (Overlay), чтобы белый текст читался на любой картинке
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.4f))
-                    )
                 } else {
-                    // Заглушка (Градиент)
                     Box(modifier = Modifier.fillMaxSize().background(
                         Brush.verticalGradient(listOf(Color(0xFF606060), Color(0xFF303030)))
                     ))
                 }
             }
 
-            // --- КОНТЕНТ ---
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(12.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // --- ВЕРХНЯЯ ЧАСТЬ ---
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -185,10 +212,7 @@ private fun BuildCard(
 
                         Text(
                             text = build.name,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                color = Color.White,
-                                shadow = Shadow(Color.Black, blurRadius = 4f)
-                            ),
+                            style = MaterialTheme.typography.titleLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = marqueeModifier
@@ -198,14 +222,14 @@ private fun BuildCard(
                         Text(
                             text = "${build.type} ${build.version}",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.8f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
                     Box {
                         IconButton(onClick = { showMenu = true }) {
-                            Icon(Icons.Default.MoreVert, "Дополнительно", tint = Color.White)
+                            Icon(Icons.Default.MoreVert, "Дополнительно")
                         }
                         DropdownMenu(
                             expanded = showMenu,
@@ -214,7 +238,6 @@ private fun BuildCard(
                             DropdownMenuItem(
                                 text = { Text("Настройки") },
                                 onClick = {
-                                    println("!!! SETTINGS ITEM CLICKED in BuildCard !!!")
                                     onSettingsClick()
                                     showMenu = false
                                 }
@@ -222,7 +245,6 @@ private fun BuildCard(
                             DropdownMenuItem(
                                 text = { Text("Удалить") },
                                 onClick = {
-                                    println("!!! DELETE ITEM CLICKED in BuildCard !!!")
                                     onDeleteClick()
                                     showMenu = false
                                 }
@@ -231,7 +253,6 @@ private fun BuildCard(
                     }
                 }
 
-                // --- НИЖНЯЯ ЧАСТЬ ---
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -246,9 +267,9 @@ private fun BuildCard(
                     Spacer(Modifier.width(8.dp))
                     IconButton(
                         onClick = onOpenFolderClick,
-                        modifier = Modifier.size(36.dp).background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                        modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(Icons.Default.Folder, "Открыть папку", tint = Color.White)
+                        Icon(Icons.Default.Folder, "Открыть папку")
                     }
                 }
             }
@@ -263,32 +284,19 @@ fun LaunchButton(
     isRunning: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val gradientBrush = Brush.horizontalGradient(
-        colors = listOf(Color(0xFF8A2BE2), Color(0xFF6A0DAD))
-    )
-
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(
             containerColor = when {
                 isPreparing -> Color.Gray
                 isRunning -> Color(0xFFD32F2F)
-                else -> Color.Transparent
+                else -> MaterialTheme.colorScheme.primary
             },
             contentColor = Color.White,
             disabledContainerColor = Color.Gray
         ),
         modifier = modifier
-            .height(40.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (!isPreparing && !isRunning) gradientBrush else SolidColor(Color.Transparent))
-            .border(
-                width = 1.dp,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(Color.White.copy(alpha = 0.5f), Color.White.copy(alpha = 0.1f))
-                ),
-                shape = RoundedCornerShape(8.dp)
-            ),
+            .height(40.dp),
         enabled = !isPreparing,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
     ) {

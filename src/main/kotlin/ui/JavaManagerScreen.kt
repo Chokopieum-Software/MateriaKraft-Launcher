@@ -8,24 +8,19 @@
 
 package ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import funlauncher.DownloadManager
-import funlauncher.JavaDownloader
-import funlauncher.JavaInfo
-import funlauncher.JavaInstallations
-import funlauncher.JavaManager
+import funlauncher.*
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,7 +28,8 @@ import kotlinx.coroutines.launch
 fun JavaManagerWindow(
     onCloseRequest: () -> Unit,
     javaManager: JavaManager,
-    javaDownloader: JavaDownloader
+    javaDownloader: JavaDownloader,
+    appSettings: AppSettings
 ) {
     var installations by remember { mutableStateOf<JavaInstallations?>(null) }
     var status by remember { mutableStateOf("Загрузка...") }
@@ -87,68 +83,69 @@ fun JavaManagerWindow(
     }
 
     Dialog(onDismissRequest = onCloseRequest) {
-        Scaffold(
-            topBar = {
-                TopAppBar(title = { Text("Управление Java") })
-            },
-            bottomBar = {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(status, style = MaterialTheme.typography.labelSmall)
-                    Button(
-                        onClick = { showInstallDialog = true },
-                        enabled = !DownloadManager.tasks.isNotEmpty(),
+        AppTheme(appSettings.theme) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(title = { Text("Управление Java") })
+                },
+                bottomBar = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Установить JDK")
-                    }
-                }
-            }
-        ) { paddingValues ->
-            val isAnyTaskRunning = DownloadManager.tasks.isNotEmpty()
-
-            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-                if (installations == null && isWorking) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                } else {
-                    Row(Modifier.fillMaxSize().padding(16.dp)) {
-                        Column(Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text("Установлено лаунчером", style = MaterialTheme.typography.titleMedium)
-                            LazyColumn(Modifier.fillMaxHeight()) {
-                                if (installations?.launcher?.isEmpty() != false) item { Text("Нет версий, установленных лаунчером.") }
-                                items(installations?.launcher ?: emptyList()) { java ->
-                                    JavaListItem(java, isDeleting = java == javaToDelete) { delete(java) }
-                                }
-                            }
-                        }
-                        Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                            Text("Обнаружено в системе", style = MaterialTheme.typography.titleMedium)
-                            LazyColumn(Modifier.fillMaxHeight()) {
-                                if (installations?.system?.isEmpty() != false) item { Text("В системе не найдено Java.") }
-                                items(installations?.system ?: emptyList()) { java ->
-                                    JavaListItem(
-                                        java,
-                                        isDeleting = false,
-                                        onDelete = null
-                                    )
-                                }
-                            }
+                        Text(status, style = MaterialTheme.typography.labelSmall)
+                        Button(
+                            onClick = { showInstallDialog = true },
+                            enabled = !DownloadManager.tasks.isNotEmpty(),
+                        ) {
+                            Text("Установить JDK")
                         }
                     }
                 }
-            }
-        }
-
-        if (showInstallDialog) {
-            InstallJavaDialog(
-                onDismiss = { showInstallDialog = false },
-                onInstall = { version ->
-                    showInstallDialog = false
-                    install(version)
+            ) { paddingValues ->
+                Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                    if (installations == null && isWorking) {
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                    } else {
+                        Row(Modifier.fillMaxSize().padding(16.dp)) {
+                            Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text("Установлено лаунчером", style = MaterialTheme.typography.titleMedium)
+                                LazyColumn(Modifier.fillMaxHeight()) {
+                                    if (installations?.launcher?.isEmpty() != false) item { Text("Нет версий, установленных лаунчером.") }
+                                    items(installations?.launcher ?: emptyList()) { java ->
+                                        JavaListItem(java, isDeleting = java == javaToDelete) { delete(java) }
+                                    }
+                                }
+                            }
+                            Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                                Text("Обнаружено в системе", style = MaterialTheme.typography.titleMedium)
+                                LazyColumn(Modifier.fillMaxHeight()) {
+                                    if (installations?.system?.isEmpty() != false) item { Text("В системе не найдено Java.") }
+                                    items(installations?.system ?: emptyList()) { java ->
+                                        JavaListItem(
+                                            java,
+                                            isDeleting = false,
+                                            onDelete = null
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            )
+            }
+
+            if (showInstallDialog) {
+                InstallJavaDialog(
+                    onDismiss = { showInstallDialog = false },
+                    onInstall = { version ->
+                        showInstallDialog = false
+                        install(version)
+                    },
+                    theme = appSettings.theme
+                )
+            }
         }
     }
 }
@@ -173,19 +170,21 @@ private fun JavaListItem(java: JavaInfo, isDeleting: Boolean, onDelete: (() -> U
 }
 
 @Composable
-private fun InstallJavaDialog(onDismiss: () -> Unit, onInstall: (Int) -> Unit) {
+private fun InstallJavaDialog(onDismiss: () -> Unit, onInstall: (Int) -> Unit, theme: Theme) {
     val versions = listOf(8, 11, 17, 21, 25)
     Dialog(onDismissRequest = onDismiss) {
-        Card(Modifier.padding(16.dp)) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Выберите версию JDK для установки", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(16.dp))
-                versions.forEach { version ->
-                    Button(
-                        onClick = { onInstall(version) },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                    ) {
-                        Text("Java $version")
+        AppTheme(theme) {
+            Card(Modifier.padding(16.dp)) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Выберите версию JDK для установки", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(16.dp))
+                    versions.forEach { version ->
+                        Button(
+                            onClick = { onInstall(version) },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        ) {
+                            Text("Java $version")
+                        }
                     }
                 }
             }

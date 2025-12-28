@@ -8,8 +8,9 @@
 
 package ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,7 +18,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import funlauncher.AppSettings
+import funlauncher.NavPanelPosition
 import funlauncher.Theme
+import openUri
+import java.net.URI
+import java.util.Properties
+
+object AppInfo {
+    val version: String
+    val buildNumber: String
+    val buildSource: String
+    init {
+        val props = Properties()
+        props.load(this.javaClass.classLoader.getResourceAsStream("app.properties"))
+        version = props.getProperty("version")
+        buildNumber = props.getProperty("buildNumber")
+        buildSource = props.getProperty("buildSource", "Unknown")
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,50 +44,50 @@ fun SettingsTab(
     onSave: (AppSettings) -> Unit,
     onOpenJavaManager: () -> Unit
 ) {
-    var theme by remember { mutableStateOf(currentSettings.theme) }
-    var showConsole by remember { mutableStateOf(currentSettings.showConsoleOnLaunch) }
     var showLaunchSettingsDialog by remember { mutableStateOf(false) }
-    var expanded by remember { mutableStateOf(false) }
 
-    // Сохраняем простые изменения при изменении
-    LaunchedEffect(theme, showConsole) {
-        onSave(currentSettings.copy(theme = theme, showConsoleOnLaunch = showConsole))
-    }
-
-    Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Настройки", style = MaterialTheme.typography.headlineMedium)
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Column(
+            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Настройки",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
 
             // --- Выбор темы ---
             OutlinedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Внешний вид", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
-                    Box {
-                        OutlinedTextField(
-                            value = theme.name,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Тема") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Theme.values().forEach { themeOption ->
-                                DropdownMenuItem(
-                                    text = { Text(themeOption.name) },
-                                    onClick = {
-                                        theme = themeOption
-                                        expanded = false
-                                    }
-                                )
+                    Spacer(Modifier.height(16.dp))
+                    val themeOptions = Theme.values().map { it.name }
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        themeOptions.forEachIndexed { index, label ->
+                            SegmentedButton(
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = themeOptions.size),
+                                onClick = { onSave(currentSettings.copy(theme = Theme.values()[index])) },
+                                selected = currentSettings.theme.name == label
+                            ) {
+                                Text(label)
                             }
                         }
-                        Box(modifier = Modifier.matchParentSize().clickable { expanded = !expanded })
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text("Положение панели навигации", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(16.dp))
+                    val navPanelOptions = NavPanelPosition.values().map { it.name }
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        navPanelOptions.forEachIndexed { index, label ->
+                            SegmentedButton(
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = navPanelOptions.size),
+                                onClick = { onSave(currentSettings.copy(navPanelPosition = NavPanelPosition.values()[index])) },
+                                selected = currentSettings.navPanelPosition.name == label
+                            ) {
+                                Text(label)
+                            }
+                        }
                     }
                 }
             }
@@ -84,8 +102,8 @@ fun SettingsTab(
                     ) {
                         Text("Запускать консоль при запуске игры", modifier = Modifier.weight(1f))
                         Switch(
-                            checked = showConsole,
-                            onCheckedChange = { showConsole = it }
+                            checked = currentSettings.showConsoleOnLaunch,
+                            onCheckedChange = { onSave(currentSettings.copy(showConsoleOnLaunch = it)) }
                         )
                     }
 
@@ -104,12 +122,42 @@ fun SettingsTab(
             }
         }
 
-        Text(
-            text = "НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.",
-            style = MaterialTheme.typography.labelSmall,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
-        )
+        Spacer(Modifier.height(16.dp))
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Chokopieum Software 2025",
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "OS: ${System.getProperty("os.name")} (${System.getProperty("os.arch")})",
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Version: ${AppInfo.version} (Build ${AppInfo.buildNumber}) | Source: ${AppInfo.buildSource}",
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            TextButton(onClick = {
+                openUri(URI("https://github.com/Chokopieum-Software/MateriaKraft-Launcher"))
+            }) {
+                Text("GitHub")
+            }
+            Text(
+                text = "НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.",
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
     }
 
 

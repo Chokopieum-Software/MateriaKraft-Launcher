@@ -14,6 +14,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.nio.file.Paths
+import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -21,6 +22,11 @@ import kotlin.io.path.writeText
 @Serializable
 enum class Theme {
     System, Light, Dark
+}
+
+@Serializable
+enum class NavPanelPosition {
+    Left, Bottom
 }
 
 @Serializable
@@ -33,11 +39,12 @@ data class AppSettings(
     // Остальные настройки
     val javaPath: String = "", // Глобальный путь к Java
     val theme: Theme = Theme.System,
-    val showConsoleOnLaunch: Boolean = false
+    val showConsoleOnLaunch: Boolean = false,
+    val navPanelPosition: NavPanelPosition = NavPanelPosition.Left
 )
 
 class SettingsManager {
-    private val settingsPath = Paths.get("settings.json")
+    private val settingsPath = PathManager.getAppDataDirectory().resolve("settings.json")
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
 
     suspend fun loadSettings(): AppSettings = withContext(Dispatchers.IO) {
@@ -52,6 +59,7 @@ class SettingsManager {
 
     suspend fun saveSettings(settings: AppSettings) = withContext(Dispatchers.IO) {
         try {
+            settingsPath.parent.createDirectories()
             settingsPath.writeText(json.encodeToString(settings))
         } catch (e: Exception) {
             e.printStackTrace() // Для отладки

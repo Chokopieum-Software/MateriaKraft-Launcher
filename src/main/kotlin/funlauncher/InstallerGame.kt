@@ -26,6 +26,8 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.*
 import java.io.File
+import java.net.ConnectException
+import java.net.UnknownHostException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -38,10 +40,10 @@ import kotlin.io.path.*
 
 @Serializable
 data class FabricProfile(
-    val id: String,
-    val inheritsFrom: String,
-    val mainClass: String,
-    val libraries: List<VersionInfo.Library>,
+    val id: String? = null,
+    val inheritsFrom: String? = null,
+    val mainClass: String? = null,
+    val libraries: List<VersionInfo.Library> = emptyList(),
     val arguments: VersionInfo.Arguments? = null
 )
 
@@ -172,6 +174,20 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
             }.start()
 
             return process
+        } catch (e: Exception) {
+            when (e) {
+                is UnknownHostException, is ConnectException, is HttpRequestTimeoutException -> {
+                    val versionId = build.version
+                    val jsonFile = globalVersionsDir.resolve(versionId).resolve("$versionId.json")
+                    val message = if (jsonFile.exists()) {
+                        "Не удалось скачать некоторые файлы игры. Проверьте подключение к интернету и попробуйте снова."
+                    } else {
+                        "Не удалось получить информацию о версии '$versionId'. Для первого запуска этой версии требуется подключение к интернету."
+                    }
+                    throw IllegalStateException(message, e)
+                }
+                else -> throw e // rethrow other exceptions
+            }
         } finally {
             DownloadManager.endTask(task.id)
         }
@@ -239,6 +255,10 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
                 val vanillaInfo = getVanillaVersionInfo(gameVersion)
                 val fabricProfileUrl = "https://meta.fabricmc.net/v2/versions/loader/$gameVersion/$loaderVersion/profile/json"
                 val fabricProfile = client.get(fabricProfileUrl).body<FabricProfile>()
+
+                if (fabricProfile.id == null || fabricProfile.mainClass == null) {
+                    throw IllegalStateException("Failed to get valid Fabric profile. The server might have returned an error or the version is invalid.")
+                }
 
                 vanillaInfo.copy(
                     id = fabricProfile.id,

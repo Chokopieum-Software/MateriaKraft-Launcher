@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import funlauncher.*
 import kotlinx.coroutines.launch
+import java.io.File
 
 private fun log(message: String) {
     println("[AddBuildDialog] $message")
@@ -26,13 +27,13 @@ private fun log(message: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType) -> Unit) {
+fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType, String?) -> Unit) {
     log("Composing AddBuildDialog.")
 
     var name by remember { mutableStateOf("") }
     var buildType by remember { mutableStateOf(BuildType.VANILLA) }
     var selectedMcVersion by remember { mutableStateOf("") }
-    var selectedLoaderVersion by remember { mutableStateOf("") }
+    var selectedLoaderVersion by remember { mutableStateOf<String>("") }
 
     var vanillaVersions by remember { mutableStateOf<List<String>>(emptyList()) }
     var fabricGameVersions by remember { mutableStateOf<List<FabricGameVersion>>(emptyList()) }
@@ -145,7 +146,7 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType) -> 
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(0.dp) // No space for seamless buttons
                 ) {
-                    val types = BuildType.values()
+                    val types = BuildType.entries
                     types.forEachIndexed { index, type ->
                         val shape = when (index) {
                             0 -> RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp)
@@ -207,7 +208,7 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType) -> 
                     var loaderExpanded by remember { mutableStateOf(false) }
                     ExposedDropdownMenuBox(expanded = loaderExpanded, onExpandedChange = { loaderExpanded = !loaderExpanded }) {
                         OutlinedTextField(
-                            value = selectedLoaderVersion.ifEmpty { if (selectedMcVersion.isEmpty()) "Сначала выберите версию" else "Загрузка..." },
+                            value = if (selectedMcVersion.isEmpty()) "Сначала выберите версию" else selectedLoaderVersion.ifEmpty { "Загрузка..." },
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Версия загрузчика") },
@@ -242,8 +243,14 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType) -> 
                                 BuildType.FORGE -> "$selectedMcVersion-forge-$selectedLoaderVersion"
                                 else -> selectedMcVersion
                             }
+                            val backgroundsDir = File("src/main/resources/backgrounds")
+                            val randomImage = if (backgroundsDir.exists() && backgroundsDir.isDirectory) {
+                                backgroundsDir.listFiles()?.randomOrNull()?.absolutePath
+                            } else {
+                                null
+                            }
                             log("Creating build with version: $finalVersion")
-                            onAdd(name, finalVersion, buildType)
+                            onAdd(name, finalVersion, buildType, randomImage)
                         },
                         enabled = name.isNotBlank() && selectedMcVersion.isNotBlank() && (buildType == BuildType.VANILLA || selectedLoaderVersion.isNotBlank())
                     ) { Text("Создать") }

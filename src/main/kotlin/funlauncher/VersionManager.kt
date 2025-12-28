@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalTime::class)
 /*
  * Copyright 2025 Chokopieum Software
  *
@@ -20,6 +21,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.time.Duration.Companion.days
+import kotlin.time.ExperimentalTime
 
 @Serializable
 data class ForgeVersion(
@@ -41,10 +44,10 @@ class VersionManager {
         }
     }
 
-    private var cachedMinecraftVersions: List<MinecraftVersion>? = null
-    private var cachedFabricGameVersions: List<FabricGameVersion>? = null
-    private val cachedFabricLoaderVersions = mutableMapOf<String, List<FabricVersion>>()
-    private var cachedForgeVersions: List<ForgeVersion>? = null
+    private val minecraftVersionsCache = CacheManager<List<MinecraftVersion>>("minecraft_versions.json", 1.days)
+    private val fabricGameVersionsCache = CacheManager<List<FabricGameVersion>>("fabric_game_versions.json", 1.days)
+    private val fabricLoaderVersionsCache = mutableMapOf<String, CacheManager<List<FabricVersion>>>()
+    private val forgeVersionsCache = CacheManager<List<ForgeVersion>>("forge_versions.json", 1.days)
 
     private fun log(message: String) {
         println("[VersionManager] $message")
@@ -52,17 +55,21 @@ class VersionManager {
 
     suspend fun getMinecraftVersions(forceRefresh: Boolean = false): List<MinecraftVersion> {
         log("Запрос версий Minecraft (forceRefresh=$forceRefresh)")
-        if (cachedMinecraftVersions != null && !forceRefresh) {
-            log("Возвращаем ${cachedMinecraftVersions!!.size} кэшированных версий Minecraft.")
-            return cachedMinecraftVersions!!
+        if (!forceRefresh) {
+            val cached = minecraftVersionsCache.load()
+            if (cached != null) {
+                log("Возвращаем ${cached.size} кэшированных версий Minecraft.")
+                return cached
+            }
         }
         val manifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
         log("Кэш пуст или требуется обновление. Запрос на $manifestUrl")
         try {
             val manifest = client.get(manifestUrl).body<VersionManifest>()
-            cachedMinecraftVersions = manifest.versions.map { MinecraftVersion(it.id, it.type) }
-            log("Получено и кэшировано ${cachedMinecraftVersions!!.size} версий Minecraft.")
-            return cachedMinecraftVersions!!
+            val versions = manifest.versions.map { MinecraftVersion(it.id, it.type) }
+            minecraftVersionsCache.save(versions)
+            log("Получено и кэшировано ${versions.size} версий Minecraft.")
+            return versions
         } catch (e: Exception) {
             log("Ошибка при получении версий Minecraft: ${e.message}")
             return emptyList()
@@ -71,15 +78,18 @@ class VersionManager {
 
     suspend fun getFabricGameVersions(forceRefresh: Boolean = false): List<FabricGameVersion> {
         log("Запрос поддерживаемых Fabric версий игры (forceRefresh=$forceRefresh)")
-        if (cachedFabricGameVersions != null && !forceRefresh) {
-            log("Возвращаем ${cachedFabricGameVersions!!.size} кэшированных версий игр, поддерживаемых Fabric.")
-            return cachedFabricGameVersions!!
+        if (!forceRefresh) {
+            val cached = fabricGameVersionsCache.load()
+            if (cached != null) {
+                log("Возвращаем ${cached.size} кэшированных версий игр, поддерживаемых Fabric.")
+                return cached
+            }
         }
         val url = "https://meta.fabricmc.net/v2/versions/game"
         log("Кэш пуст или требуется обновление. Запрос на $url")
         try {
             val versions = client.get(url).body<List<FabricGameVersion>>()
-            cachedFabricGameVersions = versions
+            fabricGameVersionsCache.save(versions)
             log("Получено и кэшировано ${versions.size} версий игр, поддерживаемых Fabric.")
             return versions
         } catch (e: Exception) {
@@ -90,10 +100,15 @@ class VersionManager {
 
     suspend fun getFabricLoaderVersions(gameVersion: String, forceRefresh: Boolean = false): List<FabricVersion> {
         log("Запрос версий загрузчика Fabric для Minecraft $gameVersion (forceRefresh=$forceRefresh)")
-        if (cachedFabricLoaderVersions.containsKey(gameVersion) && !forceRefresh) {
-            val cachedVersions = cachedFabricLoaderVersions[gameVersion]!!
-            log("Возвращаем ${cachedVersions.size} кэшированных версий загрузчика для $gameVersion.")
-            return cachedVersions
+        val cache = fabricLoaderVersionsCache.getOrPut(gameVersion) {
+            CacheManager("fabric_loader_versions_$gameVersion.json", 1.days)
+        }
+        if (!forceRefresh) {
+            val cached = cache.load()
+            if (cached != null) {
+                log("Возвращаем ${cached.size} кэшированных версий загрузчика для $gameVersion.")
+                return cached
+            }
         }
         val url = "https://meta.fabricmc.net/v2/versions/loader/$gameVersion"
         log("Кэш пуст или требуется обновление для $gameVersion. Запрос на $url")
@@ -103,31 +118,32 @@ class VersionManager {
 
             if (response.status.value != 200) {
                 log("API Fabric вернуло статус ${response.status.value} для $gameVersion. Возвращаем пустой список.")
-                cachedFabricLoaderVersions[gameVersion] = emptyList()
+                cache.save(emptyList())
                 return emptyList()
             }
 
-            // Парсим сложный ответ от сервера
             val apiResponse = json.decodeFromString<List<FabricLoaderApiResponse>>(responseText)
-            // Преобразуем его в наш чистый внутренний формат
             val versions = apiResponse.map { FabricVersion(it.loader.version, it.loader.stable) }
 
-            cachedFabricLoaderVersions[gameVersion] = versions
+            cache.save(versions)
             log("Получено и кэшировано ${versions.size} версий загрузчика для $gameVersion.")
             return versions
 
         } catch (e: Exception) {
             log("Критическая ошибка при получении или парсинге версий загрузчика для $gameVersion: ${e.message}. Возвращаем пустой список.")
-            cachedFabricLoaderVersions[gameVersion] = emptyList()
+            cache.save(emptyList())
             return emptyList()
         }
     }
 
     suspend fun getForgeVersions(forceRefresh: Boolean = false): List<ForgeVersion> {
         log("Запрос версий Forge (forceRefresh=$forceRefresh)")
-        if (cachedForgeVersions != null && !forceRefresh) {
-            log("Возвращаем ${cachedForgeVersions!!.size} кэшированных версий Forge.")
-            return cachedForgeVersions!!
+        if (!forceRefresh) {
+            val cached = forgeVersionsCache.load()
+            if (cached != null) {
+                log("Возвращаем ${cached.size} кэшированных версий Forge.")
+                return cached
+            }
         }
         val url = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
         log("Кэш пуст или требуется обновление. Запрос на $url")
@@ -157,7 +173,7 @@ class VersionManager {
                     ))
                 }
             }
-            cachedForgeVersions = versions
+            forgeVersionsCache.save(versions)
             log("Получено и кэшировано ${versions.size} уникальных версий Forge.")
             return versions
         } catch (e: Exception) {

@@ -1,107 +1,68 @@
 name: Build and Release App
 
 on:
-  workflow_dispatch:
   push:
     branches: [ "alpha" ]
     tags: [ "v*" ]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
+  build:
+    strategy:
+      matrix:
+        os:
+          - name: windows-x64
+            runner: windows-latest
+            build-command: ./gradlew packageExe
+            artifact-path: build/compose/binaries/main/exe/*.exe
+          - name: windows-arm64
+            runner: windows-latest-arm64
+            build-command: ./gradlew packageExe
+            artifact-path: build/compose/binaries/main/exe/*.exe
+          - name: macos
+            runner: macos-latest
+            build-command: ./gradlew packageUberJarForCurrentOS
+            artifact-path: build/compose/jars/materia-launcher.jar
+          - name: linux-x64
+            runner: ubuntu-latest
+            build-command: ./gradlew packageUberJarForCurrentOS
+            artifact-path: build/compose/jars/materia-launcher.jar
 
-      - name: Setup Java 25 (Compiler)
+    runs-on: ${{ matrix.os.runner }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 25
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '25'
 
-      - name: Setup Java 21 (Gradle Runner)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '21'
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
-        with:
-          cache-disabled: true
-      - name: Build Windows Installers
-        run: ./gradlew packageDistributionForCurrentOS
 
-      - name: Upload Windows Artifacts
+      - name: Build the application
+        run: ${{ matrix.os.build-command }}
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installers
-          path: build/compose/binaries/main/*/*
+          name: ${{ matrix.os.name }}-artifact
+          path: ${{ matrix.os.artifact-path }}
           if-no-files-found: error
 
-
-  build-linux-x64:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Java 25 (Compiler)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '25'
-
-      # 2. Ставим Java 21 (чтобы на ней работал сам Gradle и не падал)
-      # Важно: этот шаг должен быть ПОСЛЕДНИМ setup-java, чтобы JAVA_HOME указывал на 21
-      - name: Setup Java 21 (Gradle Runner)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '21'
-
-      - name: Install Linux Build Deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y rpm binutils fakeroot
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          cache-disabled: true
-
-      - name: Build DEB and RPM
-        run: ./gradlew packageDistributionForCurrentOS
-
-      - name: Build Portable Tar
-        run: ./gradlew packagePortable
-
-      - name: Upload Linux X64 Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-x64-artifacts
-          path: |
-            build/compose/binaries/main/deb/*.deb
-            build/compose/binaries/main/rpm/*.rpm
-            build/compose/binaries/main/portable/*.tar.gz
-
-
   release:
-    needs: [build-windows, build-linux-x64]
+    needs: [build]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - name: Download Windows Artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: windows-installers
-          path: ./artifacts
-
-      - name: Download Linux X64 Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-x64-artifacts
           path: ./artifacts
 
       - name: Create GitHub Release

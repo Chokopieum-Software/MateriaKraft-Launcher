@@ -83,7 +83,7 @@ class BuildManager {
         buildsFilePath.writeText(content)
     }
 
-    suspend fun addBuild(name: String, version: String, type: BuildType) = withContext(Dispatchers.IO) {
+    suspend fun addBuild(name: String, version: String, type: BuildType, imagePath: String?) = withContext(Dispatchers.IO) {
         require(name.isNotBlank()) { "Название сборки не может быть пустым" }
         require(version.isNotBlank()) { "Версия не может быть пустой" }
 
@@ -102,7 +102,7 @@ class BuildManager {
             version = version,
             type = type,
             installPath = buildPath.toString(),
-            imagePath = null,
+            imagePath = imagePath,
             javaPath = "", // Автоматический выбор по умолчанию
             maxRamMb = null,
             javaArgs = null,

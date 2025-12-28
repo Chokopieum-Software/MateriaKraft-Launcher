@@ -21,23 +21,27 @@ import funlauncher.Account
 import funlauncher.MicrosoftAccount
 import funlauncher.OfflineAccount
 import io.ktor.client.*
+import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.request.*
-import io.ktor.client.statement.*
-import io.ktor.utils.io.jvm.javaio.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.InputStream
+import kotlinx.coroutines.CancellationException
+import java.util.concurrent.ConcurrentHashMap
 
 object ImageLoader {
     private val client = HttpClient(CIO)
+    private val cache = ConcurrentHashMap<String, ImageBitmap>()
 
     suspend fun loadAvatar(uuid: String): ImageBitmap? {
-        return withContext(Dispatchers.IO) {
+        return cache[uuid] ?: withContext(Dispatchers.IO) {
             try {
-                val response: HttpResponse = client.get("https://crafatar.com/avatars/$uuid?size=64&overlay")
-                val inputStream: InputStream = response.bodyAsChannel().toInputStream()
-                inputStream.use { loadImageBitmap(it) }
+                val bytes = client.get("https://crafatar.com/avatars/$uuid?size=64&overlay").body<ByteArray>()
+                val bitmap = loadImageBitmap(bytes.inputStream())
+                cache[uuid] = bitmap
+                bitmap
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
                 null
@@ -47,6 +51,7 @@ object ImageLoader {
 
     fun close() {
         client.close()
+        cache.clear()
     }
 }
 
@@ -54,10 +59,8 @@ object ImageLoader {
 fun AvatarImage(account: Account?, modifier: Modifier = Modifier) {
     when (account) {
         is MicrosoftAccount -> {
-            var imageBitmap by remember(account.uuid) { mutableStateOf<ImageBitmap?>(null) }
-
-            LaunchedEffect(account.uuid) {
-                imageBitmap = ImageLoader.loadAvatar(account.uuid)
+            val imageBitmap by produceState<ImageBitmap?>(initialValue = null, account.uuid) {
+                value = ImageLoader.loadAvatar(account.uuid)
             }
 
             if (imageBitmap != null) {

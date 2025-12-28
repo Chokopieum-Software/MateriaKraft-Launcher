@@ -1,6 +1,8 @@
 @file:Suppress("DEPRECATION")
- import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-import org.gradle.api.tasks.bundling.Tar
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.jvm.tasks.Jar
+import java.util.Properties
 
 plugins {
     kotlin("jvm") version "2.3.0"
@@ -12,6 +14,15 @@ plugins {
 
 group = "org.chokopieum.software"
 version = "1.0.1"
+
+val buildNumber = project.rootProject.file("build.properties").let {
+    val props = Properties()
+    it.inputStream().use { fis -> props.load(fis) }
+    val currentBuild = props.getProperty("buildNumber").toInt()
+    props.setProperty("buildNumber", (currentBuild + 1).toString())
+    it.outputStream().use { fos -> props.store(fos, null) }
+    currentBuild
+}
 
 repositories {
     mavenCentral()
@@ -28,34 +39,32 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
     implementation("com.microsoft.azure:msal4j:1.14.0")
-    implementation("com.github.javakeyring:java-keyring:1.0.0")
+    implementation("com.github.javakeyring:java-keyring:1.0.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("com.akuleshov7:ktoml-core-jvm:0.7.1")
 
     // === Логгирование ===
     implementation("org.slf4j:slf4j-simple:2.0.17")
 
-
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     // === Сеть (HTTP Client) ===
-    // Ktor 2.3.13 - стабильная версия
     implementation("io.ktor:ktor-client-core:2.3.13")
     implementation("io.ktor:ktor-client-cio:2.3.13") // Движок для Ktor
-    // Для автоматической работы с JSON в Ktor
     implementation("io.ktor:ktor-client-content-negotiation:2.3.13")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.13")
 
     // === Работа с архивами ===
     implementation("org.apache.commons:commons-compress:1.26.2")
-    // Явно указываем безопасную версию commons-lang3 для устранения уязвимости
     implementation("org.apache.commons:commons-lang3:3.18.0")
 }
 
 kotlin {
-    // Java 25
     jvmToolchain(25)
 }
+
+val packageVersion = "1.0.19"
 
 compose.desktop {
     application {
@@ -63,74 +72,40 @@ compose.desktop {
 
         nativeDistributions {
             packageName = "materia-launcher"
-            packageVersion = "1.0.1"
+            packageVersion = packageVersion
             description = "Modern launcher for Minecraft"
             vendor = "Chokopieum Software"
             copyright = "© 2025 Chokopieum Software"
 
-            // Настройка для Linux
-            linux {
-                appCategory = "Game"
-                // iconFile.set(project.file("src/main/resources/icon.png"))
-            }
+            // Собираем только EXE для Windows со встроенной JDK
+            targetFormats(TargetFormat.Exe)
 
-            // Настройка для Windows
             windows {
                 menu = true
                 shortcut = true
                 upgradeUuid = "019b375c-3319-7eec-8098-e50668c43b5a"
             }
-
-            // Логика выбора форматов в зависимости от ОС сборки
-            val osName = System.getProperty("os.name").lowercase()
-            when {
-                osName.contains("win") -> {
-                    targetFormats(TargetFormat.Msi, TargetFormat.Exe)
-                }
-                osName.contains("linux") -> {
-                    targetFormats(TargetFormat.Deb, TargetFormat.Rpm)
-                }
-                osName.contains("mac") -> {
-                    targetFormats(TargetFormat.Dmg)
-                }
-            }
         }
     }
 }
 
-// === ЗАДАЧА ДЛЯ СОЗДАНИЯ ПОРТАТИВНОГО TAR.GZ ===
-tasks.register<Tar>("packagePortable") {
-    group = "distribution"
-    description = "Packages the app as a portable tar.gz archive"
-
-    dependsOn("createDistributable")
-
-    val arch = System.getProperty("os.arch").let {
-        if (it == "aarch64") "arm64" else "amd64"
+// Конфигурация для задачи создания Uber-JAR
+afterEvaluate {
+    tasks.named("packageUberJarForCurrentOS", Jar::class) {
+        archiveFileName.set("materia-launcher.jar")
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     }
+}
 
-    archiveBaseName.set("materia-launcher")
-    archiveVersion.set(version.toString())
-    archiveClassifier.set("linux-$arch")
-    archiveExtension.set("tar.gz")
-    compression = Compression.GZIP
-
-    val distributionDir = project.layout.buildDirectory.dir("compose/binaries/main/app")
-
-    from(distributionDir) {
-        eachFile {
-            // Исправление: используем filePermissions { unix(...) }
-            if (name.endsWith(".sh") || !name.contains(".")) {
-                filePermissions {
-                    unix(493)
-                }
-            }
-        }
-    }
-
-    destinationDirectory.set(project.layout.buildDirectory.dir("compose/binaries/main/portable"))
-
-    doLast {
-        println("Portable archive created at: ${destinationDirectory.get()}/${archiveFileName.get()}")
+tasks.processResources {
+    val props = Properties()
+    props.setProperty("version", packageVersion)
+    props.setProperty("buildNumber", buildNumber.toString())
+    // Определяем источник сборки
+    val buildSource = if (System.getenv("GITHUB_ACTIONS") == "true") "GitHub" else "Local"
+    props.setProperty("buildSource", buildSource)
+    file("src/main/resources/app.properties").writer().use {
+        props.store(it, null)
     }
 }
