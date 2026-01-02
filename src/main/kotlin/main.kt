@@ -9,7 +9,9 @@
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -25,13 +27,10 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.application
+import androidx.compose.ui.window.*
 import com.sun.management.OperatingSystemMXBean
 import funlauncher.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import ui.*
 import java.awt.Desktop
 import java.io.File
@@ -40,19 +39,52 @@ import java.net.URI
 
 enum class AppTab { Home, Mods, Settings }
 
+@Composable
+fun AnimatedAppTheme(
+    theme: Theme,
+    content: @Composable () -> Unit
+) {
+    val isDark = when (theme) {
+        Theme.System -> isSystemInDarkTheme()
+        Theme.Light -> false
+        Theme.Dark -> true
+    }
+    val colors = if (isDark) darkColorScheme() else lightColorScheme()
+
+    val animatedColors = colors.copy(
+        primary = animateColorAsState(colors.primary).value,
+        secondary = animateColorAsState(colors.secondary).value,
+        tertiary = animateColorAsState(colors.tertiary).value,
+        background = animateColorAsState(colors.background).value,
+        surface = animateColorAsState(colors.surface).value,
+        onPrimary = animateColorAsState(colors.onPrimary).value,
+        onSecondary = animateColorAsState(colors.onSecondary).value,
+        onTertiary = animateColorAsState(colors.onTertiary).value,
+        onBackground = animateColorAsState(colors.onBackground).value,
+        onSurface = animateColorAsState(colors.onSurface).value
+    )
+
+    MaterialTheme(
+        colorScheme = animatedColors,
+        content = content
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun App(appSettings: AppSettings, onSettingsChange: (AppSettings) -> Unit) {
+fun App(
+    appState: AppState,
+    onSettingsChange: (AppSettings) -> Unit,
+    buildManager: BuildManager,
+    javaManager: JavaManager,
+    accountManager: AccountManager,
+    javaDownloader: JavaDownloader
+) {
     val scope = rememberCoroutineScope()
-    val buildManager = remember { BuildManager() }
-    val settingsManager = remember { SettingsManager() }
-    val javaManager = remember { JavaManager() }
-    val accountManager = remember { AccountManager() }
-    val javaDownloader = remember { JavaDownloader() }
 
     var currentTab by remember { mutableStateOf(AppTab.Home) }
-    var buildList by remember { mutableStateOf<List<MinecraftBuild>>(emptyList()) }
-    var accounts by remember { mutableStateOf(accountManager.getAccounts()) }
+    val buildList = remember { mutableStateListOf(*appState.builds.toTypedArray()) }
+    var accounts by remember { mutableStateOf(appState.accounts) }
     var currentAccount by remember { mutableStateOf(accounts.firstOrNull()) }
 
     var selectedBuild by remember { mutableStateOf<MinecraftBuild?>(null) }
@@ -74,12 +106,10 @@ fun App(appSettings: AppSettings, onSettingsChange: (AppSettings) -> Unit) {
 
     fun refreshBuilds() {
         scope.launch {
-            buildList = buildManager.loadBuilds()
+            val freshBuilds = buildManager.loadBuilds()
+            buildList.clear()
+            buildList.addAll(freshBuilds)
         }
-    }
-
-    LaunchedEffect(Unit) {
-        refreshBuilds()
     }
 
     LaunchedEffect(DownloadManager.tasks.size) {
@@ -106,23 +136,23 @@ fun App(appSettings: AppSettings, onSettingsChange: (AppSettings) -> Unit) {
         }
     }
 
-    suspend fun launchMinecraft(build: MinecraftBuild, javaPath: String) {
+    suspend fun launchMinecraft(build: MinecraftBuild, javaPath: String, account: Account) {
         try {
-            if (appSettings.showConsoleOnLaunch) {
+            if (appState.settings.showConsoleOnLaunch) {
                 showGameConsole = true
             }
-            val installer = MinecraftInstaller(build)
-            val finalMaxRam = build.maxRamMb ?: appSettings.maxRamMb
-            val finalJavaArgs = build.javaArgs ?: appSettings.javaArgs
-            val finalEnvVars = build.envVars ?: appSettings.envVars
+            val installer = MinecraftInstaller(build, buildManager)
+            val finalMaxRam = build.maxRamMb ?: appState.settings.maxRamMb
+            val finalJavaArgs = build.javaArgs ?: appState.settings.javaArgs
+            val finalEnvVars = build.envVars ?: appState.settings.envVars
 
-            val process = installer.launchOffline(
-                username = currentAccount!!.username,
+            val process = installer.launch(
+                account = account,
                 javaPath = javaPath,
                 maxRamMb = finalMaxRam,
                 javaArgs = finalJavaArgs,
                 envVars = finalEnvVars,
-                showConsole = appSettings.showConsoleOnLaunch
+                showConsole = appState.settings.showConsoleOnLaunch
             )
             gameProcess = process
         } catch (e: Exception) {
@@ -137,7 +167,7 @@ fun App(appSettings: AppSettings, onSettingsChange: (AppSettings) -> Unit) {
         selectedBuild = build
         isLaunchingBuildId = build.name
         scope.launch {
-            val useAutoJava = build.javaPath == "" || (build.javaPath == null && appSettings.javaPath.isBlank())
+            val useAutoJava = build.javaPath == "" || (build.javaPath == null && appState.settings.javaPath.isBlank())
 
             if (useAutoJava) {
                 val recommendedVersion = javaManager.getRecommendedJavaVersion(build.version)
@@ -146,13 +176,13 @@ fun App(appSettings: AppSettings, onSettingsChange: (AppSettings) -> Unit) {
                 val exactJava = allJavas.firstOrNull { it.version == recommendedVersion && it.is64Bit }
 
                 if (exactJava != null) {
-                    launchMinecraft(build, exactJava.path)
+                    launchMinecraft(build, exactJava.path, currentAccount!!)
                 } else {
                     javaDownloader.downloadAndUnpack(recommendedVersion) { result ->
                         scope.launch {
                             result.fold(
                                 onSuccess = { downloadedJava ->
-                                    launchMinecraft(build, downloadedJava.path)
+                                    launchMinecraft(build, downloadedJava.path, currentAccount!!)
                                 },
                                 onFailure = {
                                     errorDialogMessage = "Не удалось скачать Java: ${it.message}"
@@ -163,8 +193,8 @@ fun App(appSettings: AppSettings, onSettingsChange: (AppSettings) -> Unit) {
                     }
                 }
             } else {
-                val finalJavaPath = build.javaPath ?: appSettings.javaPath
-                launchMinecraft(build, finalJavaPath)
+                val finalJavaPath = build.javaPath ?: appState.settings.javaPath
+                launchMinecraft(build, finalJavaPath, currentAccount!!)
             }
         }
     }
@@ -181,7 +211,7 @@ fun App(appSettings: AppSettings, onSettingsChange: (AppSettings) -> Unit) {
 
         val osBean = ManagementFactory.getOperatingSystemMXBean() as OperatingSystemMXBean
         val freeMemory = osBean.freeMemorySize / (1024 * 1024)
-        val allocatedRam = build.maxRamMb ?: appSettings.maxRamMb
+        val allocatedRam = build.maxRamMb ?: appState.settings.maxRamMb
 
         if (allocatedRam > freeMemory) {
             showRamWarningDialog = build
@@ -198,64 +228,60 @@ fun App(appSettings: AppSettings, onSettingsChange: (AppSettings) -> Unit) {
         showBuildSettingsScreen = build
     }
 
-    val contentPaddingStart by animateDpAsState(if (appSettings.navPanelPosition == NavPanelPosition.Left) 96.dp else 0.dp)
-    val contentPaddingBottom by animateDpAsState(if (appSettings.navPanelPosition == NavPanelPosition.Bottom) 80.dp else 0.dp)
+    AnimatedAppTheme(appState.settings.theme) {
+        val contentPaddingStart by animateDpAsState(if (appState.settings.navPanelPosition == NavPanelPosition.Left) 96.dp else 0.dp)
+        val contentPaddingBottom by animateDpAsState(if (appState.settings.navPanelPosition == NavPanelPosition.Bottom) 80.dp else 0.dp)
 
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Box(modifier = Modifier.fillMaxSize().padding(start = contentPaddingStart, bottom = contentPaddingBottom)) {
-            when (currentTab) {
-                AppTab.Home -> HomeScreen(
-                    builds = buildList,
-                    runningBuild = if (isGameRunning) selectedBuild else null,
-                    onLaunchClick = onLaunchClick,
-                    onOpenFolderClick = { openFolder(it.installPath) },
-                    onAddBuildClick = { showAddBuildDialog = true },
-                    isLaunchingBuildId = isLaunchingBuildId,
-                    onDeleteBuildClick = onDeleteBuildClick,
-                    onSettingsBuildClick = onSettingsBuildClick,
-                    currentAccount = currentAccount,
-                    onOpenAccountManager = { showAccountScreen = true }
-                )
-                AppTab.Mods -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "Раздел 'Моды' в разработке",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            Box(modifier = Modifier.fillMaxSize().padding(start = contentPaddingStart, bottom = contentPaddingBottom)) {
+                Crossfade(targetState = currentTab, animationSpec = tween(300)) { tab ->
+                    when (tab) {
+                        AppTab.Home -> HomeScreen(
+                            builds = buildList,
+                            runningBuild = if (isGameRunning) selectedBuild else null,
+                            onLaunchClick = onLaunchClick,
+                            onOpenFolderClick = { openFolder(it.installPath) },
+                            onAddBuildClick = { showAddBuildDialog = true },
+                            isLaunchingBuildId = isLaunchingBuildId,
+                            onDeleteBuildClick = onDeleteBuildClick,
+                            onSettingsBuildClick = onSettingsBuildClick,
+                            currentAccount = currentAccount,
+                            onOpenAccountManager = { showAccountScreen = true }
+                        )
+                        AppTab.Mods -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "Раздел 'Моды' в разработке",
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        AppTab.Settings -> SettingsTab(
+                            currentSettings = appState.settings,
+                            onSave = onSettingsChange,
+                            onOpenJavaManager = { showJavaManagerWindow = true }
+                        )
+                    }
                 }
-                AppTab.Settings -> SettingsTab(
-                    currentSettings = appSettings,
-                    onSave = { newSettings ->
-                        onSettingsChange(newSettings)
-                        scope.launch { settingsManager.saveSettings(newSettings) }
-                    },
-                    onOpenJavaManager = { showJavaManagerWindow = true }
-                )
             }
-        }
 
-        AnimatedVisibility(
-            visible = appSettings.navPanelPosition == NavPanelPosition.Left,
-            enter = slideInHorizontally(initialOffsetX = { -it }),
-            exit = slideOutHorizontally(targetOffsetX = { -it }),
-            modifier = Modifier.align(Alignment.CenterStart)
-        ) {
-            NavigationRail(
-                modifier = Modifier
-                    .padding(start = 16.dp)
-                    .height(380.dp)
-                    .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp))
-                    .clip(RoundedCornerShape(16.dp)),
-                containerColor = MaterialTheme.colorScheme.surface
+            AnimatedVisibility(
+                visible = appState.settings.navPanelPosition == NavPanelPosition.Left,
+                enter = slideInHorizontally(initialOffsetX = { -it }),
+                exit = slideOutHorizontally(targetOffsetX = { -it }),
+                modifier = Modifier.align(Alignment.CenterStart)
             ) {
-                Column(
-                    modifier = Modifier.fillMaxHeight().padding(vertical = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.SpaceBetween
+                NavigationRail(
+                    modifier = Modifier
+                        .padding(start = 16.dp)
+                        .height(300.dp) // Adjusted height
+                        .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(16.dp)),
+                    containerColor = MaterialTheme.colorScheme.surface
                 ) {
                     Column(
+                        modifier = Modifier.fillMaxHeight().padding(vertical = 16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.Center // Centered items
                     ) {
                         NavigationRailItem(
                             selected = currentTab == AppTab.Home,
@@ -263,12 +289,14 @@ fun App(appSettings: AppSettings, onSettingsChange: (AppSettings) -> Unit) {
                             icon = { Icon(Icons.Default.Home, contentDescription = "Главная") },
                             label = { Text("Главная") }
                         )
+                        Spacer(Modifier.height(16.dp))
                         NavigationRailItem(
                             selected = currentTab == AppTab.Mods,
                             onClick = { currentTab = AppTab.Mods },
                             icon = { Icon(Icons.Default.Star, contentDescription = "Моды") },
                             label = { Text("Моды") }
                         )
+                        Spacer(Modifier.height(16.dp))
                         NavigationRailItem(
                             selected = currentTab == AppTab.Settings,
                             onClick = { currentTab = AppTab.Settings },
@@ -276,184 +304,191 @@ fun App(appSettings: AppSettings, onSettingsChange: (AppSettings) -> Unit) {
                             label = { Text("Настройки") }
                         )
                     }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box {
-                            val hasActiveDownloads = DownloadManager.tasks.isNotEmpty()
-                            NavigationRailItem(
-                                selected = false,
-                                onClick = { showDownloadsPopup = !showDownloadsPopup },
-                                icon = {
-                                    when {
-                                        showCheckmark -> Icon(Icons.Default.Check, contentDescription = "Загрузка завершена")
-                                        hasActiveDownloads -> BeautifulCircularProgressIndicator(
-                                            size = 24.dp,
-                                            strokeWidth = 3.dp,
-                                            primaryColor = Color(0xFF2196F3),
-                                            secondaryColor = Color(0xFF00E5FF)
-                                        )
-                                        else -> Icon(Icons.Default.Download, contentDescription = "Загрузки")
-                                    }
-                                },
-                                label = { Text("Загрузки") }
-                            )
-                            if (showDownloadsPopup) {
-                                DownloadsPopup(onDismissRequest = { showDownloadsPopup = false })
-                            }
-                        }
-                    }
                 }
             }
-        }
 
-        AnimatedVisibility(
-            visible = appSettings.navPanelPosition == NavPanelPosition.Bottom,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it }),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            NavigationBar(
-                modifier = Modifier
-                    .padding(bottom = 16.dp)
-                    .width(300.dp)
-                    .height(64.dp)
-                    .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp))
-                    .clip(RoundedCornerShape(16.dp)),
-                containerColor = MaterialTheme.colorScheme.surface
+            AnimatedVisibility(
+                visible = appState.settings.navPanelPosition == NavPanelPosition.Bottom,
+                enter = slideInVertically(initialOffsetY = { it }),
+                exit = slideOutVertically(targetOffsetY = { it }),
+                modifier = Modifier.align(Alignment.BottomCenter)
             ) {
-                NavigationBarItem(
-                    selected = currentTab == AppTab.Home,
-                    onClick = { currentTab = AppTab.Home },
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Главная") },
-                    label = { Text("Главная") }
-                )
-                NavigationBarItem(
-                    selected = currentTab == AppTab.Mods,
-                    onClick = { currentTab = AppTab.Mods },
-                    icon = { Icon(Icons.Default.Star, contentDescription = "Моды") },
-                    label = { Text("Моды") }
-                )
-                NavigationBarItem(
-                    selected = currentTab == AppTab.Settings,
-                    onClick = { currentTab = AppTab.Settings },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = "Настройки") },
-                    label = { Text("Настройки") }
-                )
+                NavigationBar(
+                    modifier = Modifier
+                        .padding(bottom = 16.dp)
+                        .width(300.dp)
+                        .height(64.dp)
+                        .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(16.dp)),
+                    containerColor = MaterialTheme.colorScheme.surface
+                ) {
+                    NavigationBarItem(
+                        selected = currentTab == AppTab.Home,
+                        onClick = { currentTab = AppTab.Home },
+                        icon = { Icon(Icons.Default.Home, contentDescription = "Главная") },
+                        label = { Text("Главная") }
+                    )
+                    NavigationBarItem(
+                        selected = currentTab == AppTab.Mods,
+                        onClick = { currentTab = AppTab.Mods },
+                        icon = { Icon(Icons.Default.Star, contentDescription = "Моды") },
+                        label = { Text("Моды") }
+                    )
+                    NavigationBarItem(
+                        selected = currentTab == AppTab.Settings,
+                        onClick = { currentTab = AppTab.Settings },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = "Настройки") },
+                        label = { Text("Настройки") }
+                    )
+                }
+            }
+
+            // --- Floating Downloads Button ---
+            val hasActiveDownloads = DownloadManager.tasks.isNotEmpty()
+            AnimatedVisibility(
+                visible = hasActiveDownloads || showCheckmark,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)
+            ) {
+                Box {
+                    FloatingActionButton(
+                        onClick = { showDownloadsPopup = !showDownloadsPopup },
+                        shape = CircleShape,
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ) {
+                        when {
+                            showCheckmark -> Icon(Icons.Default.Check, contentDescription = "Загрузка завершена")
+                            hasActiveDownloads -> BeautifulCircularProgressIndicator(
+                                size = 24.dp,
+                                strokeWidth = 3.dp,
+                                primaryColor = MaterialTheme.colorScheme.primary,
+                                secondaryColor = MaterialTheme.colorScheme.tertiary
+                            )
+                            else -> Icon(Icons.Default.Download, contentDescription = "Загрузки") // Fallback
+                        }
+                    }
+                    if (showDownloadsPopup) {
+                        DownloadsPopup(onDismissRequest = { showDownloadsPopup = false })
+                    }
+                }
             }
         }
-    }
 
-    if (showJavaManagerWindow) {
-        JavaManagerWindow(
-            onCloseRequest = { showJavaManagerWindow = false },
-            javaManager = javaManager,
-            javaDownloader = javaDownloader,
-            appSettings = appSettings
-        )
-    }
-    if (showAddBuildDialog) {
-        AddBuildDialog(
-            onDismiss = { showAddBuildDialog = false },
-            onAdd = { name, version, type, imagePath ->
-                scope.launch {
-                    try {
-                        buildManager.addBuild(name, version, type, imagePath)
-                        refreshBuilds()
-                        showAddBuildDialog = false
-                    } catch (e: Exception) {
-                        errorDialogMessage = e.message
-                    }
-                }
-            }
-        )
-    }
-    showBuildSettingsScreen?.let { build ->
-        BuildSettingsScreen(
-            build = build,
-            globalSettings = appSettings,
-            onDismiss = { showBuildSettingsScreen = null },
-            onSave = { newName, newVersion, newType, newImagePath, javaPath, maxRam, javaArgs, envVars ->
-                scope.launch {
-                    try {
-                        buildManager.updateBuildSettings(
-                            oldName = build.name,
-                            newName = newName,
-                            newVersion = newVersion,
-                            newType = newType,
-                            newImagePath = newImagePath,
-                            newJavaPath = javaPath,
-                            newMaxRam = maxRam,
-                            newJavaArgs = javaArgs,
-                            newEnvVars = envVars
-                        )
-                        refreshBuilds()
-                        showBuildSettingsScreen = null
-                    } catch (e: Exception) {
-                        errorDialogMessage = e.message
-                    }
-                }
-            }
-        )
-    }
-    if (showAccountScreen) {
-        AccountScreen(
-            accountManager = accountManager,
-            onDismiss = { showAccountScreen = false },
-            onAccountSelected = {
-                currentAccount = it
-                showAccountScreen = false
-            },
-            onAccountsUpdated = {
-                accounts = accountManager.getAccounts()
-                currentAccount = accounts.firstOrNull()
-            }
-        )
-    }
-    if (showGameConsole) {
-        GameConsoleWindow(onCloseRequest = { showGameConsole = false })
-    }
-    showRamWarningDialog?.let { build ->
-        AlertDialog(
-            onDismissRequest = { showRamWarningDialog = null; isLaunchingBuildId = null },
-            title = { Text("Предупреждение") },
-            text = { Text("Вы выделили больше ОЗУ, чем доступно в системе. Это может привести к проблемам с производительностью или запуском. Продолжить?") },
-            confirmButton = {
-                Button(onClick = {
-                    showRamWarningDialog = null
-                    performLaunch(build)
-                }) { Text("Все равно запустить") }
-            },
-            dismissButton = {
-                Button(onClick = { showRamWarningDialog = null; isLaunchingBuildId = null }) { Text("Отмена") }
-            }
-        )
-    }
-    errorDialogMessage?.let {
-        AlertDialog(
-            onDismissRequest = { errorDialogMessage = null },
-            title = { Text("Ошибка") },
-            text = { Text(it) },
-            confirmButton = { Button(onClick = { errorDialogMessage = null }) { Text("OK") } }
-        )
-    }
-    buildToDelete?.let {
-        AlertDialog(
-            onDismissRequest = { buildToDelete = null },
-            title = { Text("Подтверждение") },
-            text = { Text("Вы уверены, что хотите удалить сборку '${it.name}'?") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            buildManager.deleteBuild(it.name)
+        if (showJavaManagerWindow) {
+            JavaManagerWindow(
+                onCloseRequest = { showJavaManagerWindow = false },
+                javaManager = javaManager,
+                javaDownloader = javaDownloader,
+                appSettings = appState.settings
+            )
+        }
+        if (showAddBuildDialog) {
+            AddBuildDialog(
+                onDismiss = { showAddBuildDialog = false },
+                onAdd = { name, version, type, imagePath ->
+                    scope.launch {
+                        try {
+                            buildManager.addBuild(name, version, type, imagePath)
                             refreshBuilds()
-                            buildToDelete = null
+                            showAddBuildDialog = false
+                        } catch (e: Exception) {
+                            errorDialogMessage = e.message
                         }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                ) { Text("Удалить") }
-            },
-            dismissButton = { Button(onClick = { buildToDelete = null }) { Text("Отмена") } }
-        )
+                    }
+                }
+            )
+        }
+        showBuildSettingsScreen?.let { build ->
+            BuildSettingsScreen(
+                build = build,
+                globalSettings = appState.settings,
+                onDismiss = { showBuildSettingsScreen = null },
+                onSave = { newName, newVersion, newType, newImagePath, javaPath, maxRam, javaArgs, envVars ->
+                    scope.launch {
+                        try {
+                            buildManager.updateBuildSettings(
+                                oldName = build.name,
+                                newName = newName,
+                                newVersion = newVersion,
+                                newType = newType,
+                                newImagePath = newImagePath,
+                                newJavaPath = javaPath,
+                                newMaxRam = maxRam,
+                                newJavaArgs = javaArgs,
+                                newEnvVars = envVars
+                            )
+                            refreshBuilds()
+                            showBuildSettingsScreen = null
+                        } catch (e: Exception) {
+                            errorDialogMessage = e.message
+                        }
+                    }
+                }
+            )
+        }
+        if (showAccountScreen) {
+            AccountScreen(
+                accounts = accounts,
+                accountManager = accountManager,
+                onDismiss = { showAccountScreen = false },
+                onAccountSelected = {
+                    currentAccount = it
+                    showAccountScreen = false
+                },
+                onAccountsUpdated = {
+                    accounts = accountManager.getAccounts()
+                    currentAccount = accounts.firstOrNull()
+                }
+            )
+        }
+        if (showGameConsole) {
+            GameConsoleWindow(onCloseRequest = { showGameConsole = false })
+        }
+        showRamWarningDialog?.let { build ->
+            AlertDialog(
+                onDismissRequest = { showRamWarningDialog = null; isLaunchingBuildId = null },
+                title = { Text("Предупреждение") },
+                text = { Text("Вы выделили больше ОЗУ, чем доступно в системе. Это может привести к проблемам с производительностью или запуском. Продолжить?") },
+                confirmButton = {
+                    Button(onClick = {
+                        showRamWarningDialog = null
+                        performLaunch(build)
+                    }) { Text("Все равно запустить") }
+                },
+                dismissButton = {
+                    Button(onClick = { showRamWarningDialog = null; isLaunchingBuildId = null }) { Text("Отмена") }
+                }
+            )
+        }
+        errorDialogMessage?.let {
+            AlertDialog(
+                onDismissRequest = { errorDialogMessage = null },
+                title = { Text("Ошибка") },
+                text = { Text(it) },
+                confirmButton = { Button(onClick = { errorDialogMessage = null }) { Text("OK") } }
+            )
+        }
+        buildToDelete?.let { build ->
+            AlertDialog(
+                onDismissRequest = { buildToDelete = null },
+                title = { Text("Подтверждение") },
+                text = { Text("Вы уверены, что хотите удалить сборку '${build.name}'?") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                buildManager.deleteBuild(build.name)
+                                buildList.removeIf { it.name == build.name }
+                                buildToDelete = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                    ) { Text("Удалить") }
+                },
+                dismissButton = { Button(onClick = { buildToDelete = null }) { Text("Отмена") } }
+            )
+        }
     }
 }
 
@@ -513,34 +548,123 @@ fun openUri(uri: URI) {
     }
 }
 
-fun main() = application {
-    Window(onCloseRequest = {
-        ImageLoader.close()
-        exitApplication()
-    }, title = "Materia") {
-        val settingsManager = remember { SettingsManager() }
-        var appSettings by remember { mutableStateOf<AppSettings?>(null) }
+private sealed class Screen {
+    object Splash : Screen()
+    object FirstRunWizard : Screen()
+    data class MainApp(val state: AppState) : Screen()
+}
 
-        LaunchedEffect(Unit) {
-            appSettings = settingsManager.loadSettings()
+data class AppState(
+    val settings: AppSettings,
+    val builds: List<MinecraftBuild>,
+    val accounts: List<Account>
+)
+
+fun main() {
+    // Принудительно включаем Vulkan для лучшей производительности анимаций
+    System.setProperty("skiko.renderApi", "VULKAN")
+
+    application {
+        var currentScreen by remember { mutableStateOf<Screen>(Screen.Splash) }
+        var appState by remember { mutableStateOf<AppState?>(null) }
+        var isContentReady by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
+
+        // Ленивая инициализация менеджеров
+        val settingsManager by lazy { SettingsManager() }
+        val buildManager by lazy { BuildManager() }
+        val accountManager by lazy { AccountManager() }
+        val javaManager by lazy { JavaManager() }
+        val javaDownloader by lazy { JavaDownloader() }
+
+        LaunchedEffect(currentScreen) {
+            if (currentScreen is Screen.Splash) {
+                isContentReady = false // Сбрасываем готовность при возврате на сплеш
+                if (PathManager.isFirstRunRequired()) {
+                    currentScreen = Screen.FirstRunWizard
+                } else {
+                    coroutineScope {
+                        val settingsJob = async(Dispatchers.IO) { settingsManager.loadSettings() }
+                        val buildsJob = async(Dispatchers.IO) { buildManager.loadBuilds() }
+                        val accountsJob = async(Dispatchers.IO) { accountManager.loadAccounts() }
+
+                        val loadedState = AppState(
+                            settings = settingsJob.await(),
+                            builds = buildsJob.await(),
+                            accounts = accountsJob.await()
+                        )
+                        appState = loadedState
+                        currentScreen = Screen.MainApp(loadedState)
+                    }
+                }
+            }
         }
 
-        if (appSettings != null) {
-            AppTheme(appSettings!!.theme) {
-                App(appSettings!!, onSettingsChange = { appSettings = it })
+        Window(
+            onCloseRequest = ::exitApplication,
+            undecorated = true,
+            transparent = true,
+            alwaysOnTop = true,
+            visible = !isContentReady,
+            state = rememberWindowState(
+                width = 400.dp,
+                height = 200.dp,
+                position = WindowPosition(Alignment.Center)
+            )
+        ) {
+            AnimatedAppTheme(Theme.Dark) { SplashScreen() }
+        }
+
+        when (val screen = currentScreen) {
+            is Screen.Splash -> { /* Ничего не делаем, сплеш уже показан */ }
+            is Screen.FirstRunWizard -> {
+                var wizardTheme by remember { mutableStateOf(Theme.Dark) }
+                Window(
+                    onCloseRequest = ::exitApplication,
+                    title = "Materia - Мастер настройки",
+                    visible = isContentReady,
+                    state = rememberWindowState(width = 600.dp, height = 700.dp, position = WindowPosition(Alignment.Center))
+                ) {
+                    AnimatedAppTheme(wizardTheme) {
+                        FirstRunWizard(
+                            accountManager = accountManager,
+                            initialTheme = wizardTheme,
+                            onThemeChange = { wizardTheme = it },
+                            onWizardComplete = { newSettings ->
+                                scope.launch(Dispatchers.IO) {
+                                    PathManager.createRequiredDirectories()
+                                    settingsManager.saveSettings(newSettings)
+                                    currentScreen = Screen.Splash
+                                }
+                            }
+                        )
+                        SideEffect { if (!isContentReady) isContentReady = true }
+                    }
+                }
             }
-        } else {
-            // Обновленный экран загрузки
-            AppTheme(Theme.Dark) { // Можно использовать любую тему по умолчанию для экрана загрузки
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CircularProgressIndicator()
-                            Text("Загрузка...", color = MaterialTheme.colorScheme.onSurface)
-                        }
+            is Screen.MainApp -> {
+                appState?.let { state ->
+                    Window(
+                        onCloseRequest = {
+                            ImageLoader.close()
+                            exitApplication()
+                        },
+                        title = "Materia",
+                        visible = isContentReady,
+                        state = rememberWindowState(width = 1024.dp, height = 768.dp)
+                    ) {
+                        App(
+                            appState = state,
+                            onSettingsChange = { newSettings ->
+                                appState = state.copy(settings = newSettings)
+                                scope.launch { settingsManager.saveSettings(newSettings) }
+                            },
+                            buildManager = buildManager,
+                            javaManager = javaManager,
+                            accountManager = accountManager,
+                            javaDownloader = javaDownloader
+                        )
+                        SideEffect { if (!isContentReady) isContentReady = true }
                     }
                 }
             }

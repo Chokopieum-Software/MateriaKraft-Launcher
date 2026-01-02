@@ -12,8 +12,10 @@ plugins {
     id("org.jetbrains.compose") version "1.9.3"
 }
 
+val packageVersion = "1.0.60000"
+
 group = "org.chokopieum.software"
-version = "1.0.1"
+version = packageVersion
 
 val buildNumber = project.rootProject.file("build.properties").let {
     val props = Properties()
@@ -64,8 +66,6 @@ kotlin {
     jvmToolchain(25)
 }
 
-val packageVersion = "1.0.19"
-
 compose.desktop {
     application {
         mainClass = "MainKt"
@@ -105,6 +105,13 @@ tasks.processResources {
     // Определяем источник сборки
     val buildSource = if (System.getenv("GITHUB_ACTIONS") == "true") "GitHub" else "Local"
     props.setProperty("buildSource", buildSource)
+
+    // Извлекаем версию Gradle
+    val wrapperProps = Properties()
+    file("gradle/wrapper/gradle-wrapper.properties").inputStream().use { wrapperProps.load(it) }
+    val gradleVersion = wrapperProps.getProperty("distributionUrl").substringAfterLast("gradle-").substringBefore("-bin")
+    props.setProperty("gradleVersion", gradleVersion)
+
     file("src/main/resources/app.properties").writer().use {
         props.store(it, null)
     }

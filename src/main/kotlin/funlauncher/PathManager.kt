@@ -8,6 +8,7 @@
 
 package funlauncher
 
+import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 
@@ -35,5 +36,25 @@ object PathManager {
                 Paths.get(userHome, launcherDirName)
             }
         }
+    }
+
+    /**
+     * Проверяет, нужно ли запускать мастер первоначальной настройки.
+     * Это определяется по наличию корневой папки лаунчера.
+     */
+    fun isFirstRunRequired(): Boolean {
+        return !Files.exists(getAppDataDirectory())
+    }
+
+    /**
+     * Создает все необходимые директории для работы лаунчера.
+     */
+    fun createRequiredDirectories() {
+        val appData = getAppDataDirectory()
+        Files.createDirectories(appData)
+        Files.createDirectories(appData.resolve("versions"))
+        Files.createDirectories(appData.resolve("jdks"))
+        Files.createDirectories(appData.resolve("accounts"))
+        // Можно добавить другие необходимые папки здесь
     }
 }

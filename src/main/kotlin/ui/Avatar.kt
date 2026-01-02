@@ -33,7 +33,8 @@ object ImageLoader {
     private val client = HttpClient(CIO)
     private val cache = ConcurrentHashMap<String, ImageBitmap>()
 
-    suspend fun loadAvatar(uuid: String): ImageBitmap? {
+    suspend fun loadAvatar(uuid: String?): ImageBitmap? {
+        if (uuid == null) return null
         return cache[uuid] ?: withContext(Dispatchers.IO) {
             try {
                 val bytes = client.get("https://crafatar.com/avatars/$uuid?size=64&overlay").body<ByteArray>()

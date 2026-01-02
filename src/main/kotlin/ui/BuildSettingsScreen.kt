@@ -524,23 +524,25 @@ private fun MainSettingsTab(
     var fabricGameVersions by remember { mutableStateOf<List<FabricGameVersion>>(emptyList()) }
     var fabricLoaderVersions by remember { mutableStateOf<List<FabricVersion>>(emptyList()) }
     var forgeVersions by remember { mutableStateOf<List<ForgeVersion>>(emptyList()) }
+    var applicableForgeVersions by remember { mutableStateOf<List<ForgeVersion>>(emptyList()) }
     var isLoadingMcVersions by remember { mutableStateOf(false) }
-    var isLoadingFabricVersions by remember { mutableStateOf(false) }
+    var isLoadingLoaderVersions by remember { mutableStateOf(false) }
 
     val totalSystemMemory = remember { (ManagementFactory.getOperatingSystemMXBean() as com.sun.management.OperatingSystemMXBean).totalMemorySize / (1024 * 1024) }
 
     val displayedMcVersions = remember(selectedBuildType, allMcVersions, fabricGameVersions, forgeVersions) {
+        val releaseVersions = allMcVersions.filter { it.type == "release" }.map { it.id }
         when (selectedBuildType) {
-            BuildType.FABRIC -> allMcVersions.filter { it.id in fabricGameVersions.map { gv -> gv.version }.toSet() }
-            BuildType.FORGE -> allMcVersions.filter { it.id in forgeVersions.map { fv -> fv.mcVersion }.toSet() }
-            else -> allMcVersions
+            BuildType.FABRIC -> releaseVersions.filter { it in fabricGameVersions.map { gv -> gv.version }.toSet() }
+            BuildType.FORGE -> releaseVersions.filter { it in forgeVersions.map { fv -> fv.mcVersion }.toSet() }
+            else -> releaseVersions
         }
     }
 
     fun refreshAllVersions(force: Boolean = false) {
         scope.launch {
             isLoadingMcVersions = true
-            val mc = async { versionManager.getMinecraftVersions(force).filter { it.type == "release" } }
+            val mc = async { versionManager.getMinecraftVersions(force) }
             val fabric = async { versionManager.getFabricGameVersions(force) }
             val forge = async { versionManager.getForgeVersions(force) }
             allMcVersions = mc.await()
@@ -550,15 +552,28 @@ private fun MainSettingsTab(
         }
     }
 
-    fun refreshFabricLoaderVersions(force: Boolean = false) {
+    fun refreshLoaderVersions(force: Boolean = false) {
         if (selectedMcVersion.isBlank()) return
         scope.launch {
-            isLoadingFabricVersions = true
-            fabricLoaderVersions = versionManager.getFabricLoaderVersions(selectedMcVersion, force)
-            if (selectedLoaderVersion.isBlank() || fabricLoaderVersions.none { it.version == selectedLoaderVersion }) {
-                onSelectedLoaderVersionChange(fabricLoaderVersions.firstOrNull { it.stable }?.version ?: fabricLoaderVersions.firstOrNull()?.version ?: "")
+            isLoadingLoaderVersions = true
+            when (selectedBuildType) {
+                BuildType.FABRIC -> {
+                    fabricLoaderVersions = versionManager.getFabricLoaderVersions(selectedMcVersion, force)
+                    if (selectedLoaderVersion.isBlank() || fabricLoaderVersions.none { it.version == selectedLoaderVersion }) {
+                        onSelectedLoaderVersionChange(fabricLoaderVersions.firstOrNull { it.stable }?.version ?: fabricLoaderVersions.firstOrNull()?.version ?: "")
+                    }
+                }
+                BuildType.FORGE -> {
+                    applicableForgeVersions = forgeVersions.filter { it.mcVersion == selectedMcVersion }
+                    if (selectedLoaderVersion.isBlank() || applicableForgeVersions.none { it.forgeVersion == selectedLoaderVersion }) {
+                        val recommended = applicableForgeVersions.find { it.isRecommended }
+                        val latest = applicableForgeVersions.find { it.isLatest }
+                        onSelectedLoaderVersionChange(recommended?.forgeVersion ?: latest?.forgeVersion ?: applicableForgeVersions.firstOrNull()?.forgeVersion ?: "")
+                    }
+                }
+                else -> {}
             }
-            isLoadingFabricVersions = false
+            isLoadingLoaderVersions = false
         }
     }
 
@@ -569,19 +584,12 @@ private fun MainSettingsTab(
 
     LaunchedEffect(selectedMcVersion, selectedBuildType) {
         onSelectedLoaderVersionChange("") // Reset on change
-        when (selectedBuildType) {
-            BuildType.FABRIC -> if (selectedMcVersion.isNotBlank()) refreshFabricLoaderVersions()
-            BuildType.FORGE -> {
-                val forgeInfo = forgeVersions.find { it.mcVersion == selectedMcVersion && it.isRecommended } ?: forgeVersions.find { it.mcVersion == selectedMcVersion }
-                onSelectedLoaderVersionChange(forgeInfo?.forgeVersion ?: "")
-            }
-            else -> { /* No loader needed */ }
-        }
+        refreshLoaderVersions()
     }
 
     LaunchedEffect(displayedMcVersions) {
-        if (displayedMcVersions.isNotEmpty() && !displayedMcVersions.any { it.id == selectedMcVersion }) {
-            onSelectedMcVersionChange(displayedMcVersions.first().id)
+        if (displayedMcVersions.isNotEmpty() && !displayedMcVersions.contains(selectedMcVersion)) {
+            onSelectedMcVersionChange(displayedMcVersions.first())
         }
     }
 
@@ -599,7 +607,21 @@ private fun MainSettingsTab(
             }
         )
         OutlinedTextField(value = buildName, onValueChange = onBuildNameChange, label = { Text("Название установки") }, modifier = Modifier.fillMaxWidth())
-        VersionSelectionGroup(displayedMcVersions, fabricLoaderVersions, selectedMcVersion, onSelectedMcVersionChange, selectedLoaderVersion, onSelectedLoaderVersionChange, selectedBuildType, onSelectedBuildTypeChange, isLoadingMcVersions, isLoadingFabricVersions, { refreshAllVersions(true) }, { refreshFabricLoaderVersions(true) })
+        VersionSelectionGroup(
+            mcVersions = displayedMcVersions,
+            fabricVersions = fabricLoaderVersions,
+            forgeVersions = applicableForgeVersions,
+            selectedMcVersion = selectedMcVersion,
+            onMcVersionSelected = onSelectedMcVersionChange,
+            selectedLoaderVersion = selectedLoaderVersion,
+            onLoaderVersionSelected = onSelectedLoaderVersionChange,
+            buildType = selectedBuildType,
+            onBuildTypeSelected = onSelectedBuildTypeChange,
+            isLoadingMc = isLoadingMcVersions,
+            isLoadingLoader = isLoadingLoaderVersions,
+            onRefreshMc = { refreshAllVersions(true) },
+            onRefreshLoader = { refreshLoaderVersions(true) }
+        )
         JavaSelectionGroup(javaInstallations, globalSettings.javaPath, selectedJavaPath, onSelectedJavaPathChange)
         SettingGroup("Выделение ОЗУ", useGlobalRam, { onUseGlobalRamChange(it); if (it) onMaxRamChange(globalSettings.maxRamMb) }) {
             if (useGlobalRam) {
@@ -648,7 +670,21 @@ private fun ImageSelectionGroup(imagePath: String?, onImagePathChange: (File) ->
 }
 
 @Composable
-private fun VersionSelectionGroup(mcVersions: List<MinecraftVersion>, fabricVersions: List<FabricVersion>, selectedMcVersion: String, onMcVersionSelected: (String) -> Unit, selectedLoaderVersion: String, onLoaderVersionSelected: (String) -> Unit, buildType: BuildType, onBuildTypeSelected: (BuildType) -> Unit, isLoadingMc: Boolean, isLoadingFabric: Boolean, onRefreshMc: () -> Unit, onRefreshFabric: () -> Unit) {
+private fun VersionSelectionGroup(
+    mcVersions: List<String>,
+    fabricVersions: List<FabricVersion>,
+    forgeVersions: List<ForgeVersion>,
+    selectedMcVersion: String,
+    onMcVersionSelected: (String) -> Unit,
+    selectedLoaderVersion: String,
+    onLoaderVersionSelected: (String) -> Unit,
+    buildType: BuildType,
+    onBuildTypeSelected: (BuildType) -> Unit,
+    isLoadingMc: Boolean,
+    isLoadingLoader: Boolean,
+    onRefreshMc: () -> Unit,
+    onRefreshLoader: () -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Версия игры", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -656,15 +692,31 @@ private fun VersionSelectionGroup(mcVersions: List<MinecraftVersion>, fabricVers
             else IconButton(onClick = onRefreshMc) { Icon(Icons.Default.Refresh, "Обновить версии Minecraft") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(modifier = Modifier.weight(1f)) { Dropdown("Minecraft", mcVersions.map { it.id }, selectedMcVersion, onMcVersionSelected, mcVersions.isNotEmpty()) }
+            Box(modifier = Modifier.weight(1f)) { Dropdown("Minecraft", mcVersions, selectedMcVersion, onMcVersionSelected, mcVersions.isNotEmpty()) }
             Box(modifier = Modifier.weight(1f)) { Dropdown("Тип", BuildType.entries.map { it.name }, buildType.name, { onBuildTypeSelected(BuildType.valueOf(it)) }) }
         }
-        if (buildType == BuildType.FABRIC) {
+        if (buildType != BuildType.VANILLA) {
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.weight(1f)) { Dropdown("Fabric Loader", fabricVersions.map { it.version }, selectedLoaderVersion, onLoaderVersionSelected, fabricVersions.isNotEmpty()) }
-                if (isLoadingFabric) CircularProgressIndicator(Modifier.size(24.dp).padding(start = 8.dp))
-                else IconButton(onClick = onRefreshFabric, enabled = selectedMcVersion.isNotBlank()) { Icon(Icons.Default.Refresh, "Обновить версии Fabric") }
+                Box(modifier = Modifier.weight(1f)) {
+                    when (buildType) {
+                        BuildType.FABRIC -> Dropdown("Fabric Loader", fabricVersions.map { it.version }, selectedLoaderVersion, onLoaderVersionSelected, fabricVersions.isNotEmpty())
+                        BuildType.FORGE -> {
+                            val items = forgeVersions.map {
+                                val label = buildString {
+                                    append(it.forgeVersion)
+                                    if (it.isRecommended) append(" (рекомендуемая)")
+                                    else if (it.isLatest) append(" (последняя)")
+                                }
+                                label to it.forgeVersion
+                            }
+                            DropdownWithLabels("Forge", items, selectedLoaderVersion, onLoaderVersionSelected, items.isNotEmpty())
+                        }
+                        else -> {}
+                    }
+                }
+                if (isLoadingLoader) CircularProgressIndicator(Modifier.size(24.dp).padding(start = 8.dp))
+                else IconButton(onClick = onRefreshLoader, enabled = selectedMcVersion.isNotBlank()) { Icon(Icons.Default.Refresh, "Обновить версии загрузчика") }
             }
         }
     }
@@ -686,6 +738,21 @@ private fun Dropdown(label: String, items: List<String>, selected: String, onSel
         OutlinedTextField(selected, {}, readOnly = true, label = { Text(label) }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) }, modifier = Modifier.fillMaxWidth().menuAnchor(), enabled = enabled)
         ExposedDropdownMenu(expanded, { expanded = false }) {
             items.forEach { item -> DropdownMenuItem(text = { Text(item) }, onClick = { onSelected(item); expanded = false }) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DropdownWithLabels(label: String, items: List<Pair<String, String>>, selectedValue: String, onSelected: (String) -> Unit, enabled: Boolean = true) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = items.find { it.second == selectedValue }?.first ?: selectedValue
+    ExposedDropdownMenuBox(expanded, { if (enabled) expanded = !expanded }) {
+        OutlinedTextField(selectedLabel, {}, readOnly = true, label = { Text(label) }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) }, modifier = Modifier.fillMaxWidth().menuAnchor(), enabled = enabled)
+        ExposedDropdownMenu(expanded, { expanded = false }) {
+            items.forEach { (itemLabel, itemValue) ->
+                DropdownMenuItem(text = { Text(itemLabel) }, onClick = { onSelected(itemValue); expanded = false })
+            }
         }
     }
 }

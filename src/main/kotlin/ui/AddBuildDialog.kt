@@ -8,6 +8,13 @@
 
 package ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,6 +46,7 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType, Str
     var fabricGameVersions by remember { mutableStateOf<List<FabricGameVersion>>(emptyList()) }
     var fabricLoaderVersions by remember { mutableStateOf<List<FabricVersion>>(emptyList()) }
     var forgeVersions by remember { mutableStateOf<List<ForgeVersion>>(emptyList()) }
+    var applicableForgeVersions by remember { mutableStateOf<List<ForgeVersion>>(emptyList()) }
 
     var isLoading by remember { mutableStateOf(false) }
 
@@ -54,7 +62,7 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType, Str
                 vanillaVersions.filter { it in fabricSupportedIds }
             }
             BuildType.FORGE -> {
-                val forgeSupportedIds = forgeVersions.map { it.mcVersion }.toSet()
+                val forgeSupportedIds = forgeVersions.map { it.mcVersion }.distinct().toSet()
                 log("Forge selected. Filtering ${vanillaVersions.size} vanilla versions against ${forgeSupportedIds.size} supported IDs.")
                 vanillaVersions.filter { it in forgeSupportedIds }
             }
@@ -113,10 +121,11 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType, Str
                     }
                 }
                 BuildType.FORGE -> {
-                    val forgeInfo = forgeVersions.find { it.mcVersion == selectedMcVersion && it.isRecommended }
-                        ?: forgeVersions.find { it.mcVersion == selectedMcVersion }
-                    selectedLoaderVersion = forgeInfo?.forgeVersion ?: ""
-                    log("Auto-selected Forge version: '$selectedLoaderVersion'")
+                    applicableForgeVersions = forgeVersions.filter { it.mcVersion == selectedMcVersion }
+                    val recommended = applicableForgeVersions.find { it.isRecommended }
+                    val latest = applicableForgeVersions.find { it.isLatest }
+                    selectedLoaderVersion = recommended?.forgeVersion ?: latest?.forgeVersion ?: applicableForgeVersions.firstOrNull()?.forgeVersion ?: ""
+                    log("Found ${applicableForgeVersions.size} Forge versions for $selectedMcVersion. Auto-selected: '$selectedLoaderVersion'")
                 }
                 else -> {
                     // No loader for Vanilla
@@ -125,135 +134,170 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType, Str
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Card(Modifier.padding(16.dp)) {
-            Column(Modifier.padding(16.dp).width(350.dp)) {
-                Text("Новая сборка", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(16.dp))
+    val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
+    LaunchedEffect(visibleState.currentState) {
+        if (!visibleState.currentState && !visibleState.targetState) {
+            onDismiss()
+        }
+    }
 
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Название") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(16.dp))
+    Dialog(onDismissRequest = { visibleState.targetState = false }) {
+        AnimatedVisibility(
+            visibleState = visibleState,
+            enter = fadeIn(tween(250)) + slideInVertically(tween(250)) { it / 8 },
+            exit = fadeOut(tween(250)) + slideOutVertically(tween(250)) { it / 8 }
+        ) {
+            Card(Modifier.padding(16.dp)) {
+                Column(Modifier.padding(16.dp).width(350.dp)) {
+                    Text("Новая сборка", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(16.dp))
 
-                // --- Build Type Button Group ---
-                Text("Тип сборки", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(0.dp) // No space for seamless buttons
-                ) {
-                    val types = BuildType.entries
-                    types.forEachIndexed { index, type ->
-                        val shape = when (index) {
-                            0 -> RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp)
-                            types.lastIndex -> RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp)
-                            else -> RoundedCornerShape(0.dp)
-                        }
-                        val isSelected = buildType == type
-                        OutlinedButton(
-                            onClick = {
-                                if (!isSelected) {
-                                    log("Build type changed to $type")
-                                    buildType = type
-                                    selectedMcVersion = ""
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = shape,
-                            border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-                            )
-                        ) {
-                            Text(type.name.lowercase().replaceFirstChar { it.uppercase() })
-                        }
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-
-
-                // --- Game Version Dropdown ---
-                var verExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(expanded = verExpanded, onExpandedChange = { verExpanded = !verExpanded }) {
                     OutlinedTextField(
-                        value = selectedMcVersion.ifEmpty { "Выберите версию" },
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Версия игры") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = verExpanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Название") },
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    ExposedDropdownMenu(expanded = verExpanded, onDismissRequest = { verExpanded = false }) {
-                        if (isLoading && displayedGameVersions.isEmpty()) {
-                            DropdownMenuItem(text = { Text("Загрузка...") }, onClick = {}, enabled = false)
-                        } else {
-                            displayedGameVersions.forEach { v ->
-                                DropdownMenuItem(text = { Text(v) }, onClick = {
-                                    log("Game version selected: $v")
-                                    selectedMcVersion = v
-                                    verExpanded = false
-                                })
+                    Spacer(Modifier.height(16.dp))
+
+                    // --- Build Type Button Group ---
+                    Text("Тип сборки", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(0.dp) // No space for seamless buttons
+                    ) {
+                        val types = BuildType.entries
+                        types.forEachIndexed { index, type ->
+                            val shape = when (index) {
+                                0 -> RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp)
+                                types.lastIndex -> RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp)
+                                else -> RoundedCornerShape(0.dp)
+                            }
+                            val isSelected = buildType == type
+                            OutlinedButton(
+                                onClick = {
+                                    if (!isSelected) {
+                                        log("Build type changed to $type")
+                                        buildType = type
+                                        selectedMcVersion = ""
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = shape,
+                                border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                                )
+                            ) {
+                                Text(type.name.lowercase().replaceFirstChar { it.uppercase() })
                             }
                         }
                     }
-                }
-                Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(16.dp))
 
-                // --- Loader Dropdown (visible for Fabric/Forge) ---
-                if (buildType == BuildType.FABRIC || buildType == BuildType.FORGE) {
-                    var loaderExpanded by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(expanded = loaderExpanded, onExpandedChange = { loaderExpanded = !loaderExpanded }) {
+
+                    // --- Game Version Dropdown ---
+                    var verExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(expanded = verExpanded, onExpandedChange = { verExpanded = !verExpanded }) {
                         OutlinedTextField(
-                            value = if (selectedMcVersion.isEmpty()) "Сначала выберите версию" else selectedLoaderVersion.ifEmpty { "Загрузка..." },
+                            value = selectedMcVersion.ifEmpty { "Выберите версию" },
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Версия загрузчика") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = loaderExpanded) },
-                            modifier = Modifier.menuAnchor().fillMaxWidth(),
-                            enabled = selectedMcVersion.isNotEmpty()
+                            label = { Text("Версия игры") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = verExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
                         )
-                        if (buildType == BuildType.FABRIC) {
-                            ExposedDropdownMenu(expanded = loaderExpanded, onDismissRequest = { loaderExpanded = false }) {
-                                fabricLoaderVersions.forEach { v ->
-                                    DropdownMenuItem(text = { Text(v.version) }, onClick = {
-                                        log("Loader version selected: ${v.version}")
-                                        selectedLoaderVersion = v.version
-                                        loaderExpanded = false
+                        ExposedDropdownMenu(expanded = verExpanded, onDismissRequest = { verExpanded = false }) {
+                            if (isLoading && displayedGameVersions.isEmpty()) {
+                                DropdownMenuItem(text = { Text("Загрузка...") }, onClick = {}, enabled = false)
+                            } else {
+                                displayedGameVersions.forEach { v ->
+                                    DropdownMenuItem(text = { Text(v) }, onClick = {
+                                        log("Game version selected: $v")
+                                        selectedMcVersion = v
+                                        verExpanded = false
                                     })
                                 }
                             }
                         }
-                        // For Forge, we just display the auto-selected version, so no dropdown items.
                     }
                     Spacer(Modifier.height(16.dp))
-                }
 
-                Spacer(Modifier.weight(1f))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("Отмена") }
-                    Spacer(Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            val finalVersion = when (buildType) {
-                                BuildType.FABRIC -> "$selectedMcVersion-fabric-$selectedLoaderVersion"
-                                BuildType.FORGE -> "$selectedMcVersion-forge-$selectedLoaderVersion"
-                                else -> selectedMcVersion
+                    // --- Loader Dropdown (visible for Fabric/Forge) ---
+                    if (buildType == BuildType.FABRIC || buildType == BuildType.FORGE) {
+                        var loaderExpanded by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(expanded = loaderExpanded, onExpandedChange = { loaderExpanded = !loaderExpanded }) {
+                            OutlinedTextField(
+                                value = if (selectedMcVersion.isEmpty()) "Сначала выберите версию" else selectedLoaderVersion.ifEmpty { "Загрузка..." },
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Версия загрузчика") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = loaderExpanded) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                enabled = selectedMcVersion.isNotEmpty()
+                            )
+                            ExposedDropdownMenu(expanded = loaderExpanded, onDismissRequest = { loaderExpanded = false }) {
+                                if (buildType == BuildType.FABRIC) {
+                                    if (isLoading) {
+                                        DropdownMenuItem(text = { Text("Загрузка...") }, onClick = {}, enabled = false)
+                                    } else {
+                                        fabricLoaderVersions.forEach { v ->
+                                            DropdownMenuItem(text = { Text(v.version) }, onClick = {
+                                                log("Loader version selected: ${v.version}")
+                                                selectedLoaderVersion = v.version
+                                                loaderExpanded = false
+                                            })
+                                        }
+                                    }
+                                } else if (buildType == BuildType.FORGE) {
+                                    applicableForgeVersions.forEach { v ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                val label = buildString {
+                                                    append(v.forgeVersion)
+                                                    if (v.isRecommended) append(" (рекомендуемая)")
+                                                    else if (v.isLatest) append(" (последняя)")
+                                                }
+                                                Text(label)
+                                            },
+                                            onClick = {
+                                                log("Loader version selected: ${v.forgeVersion}")
+                                                selectedLoaderVersion = v.forgeVersion
+                                                loaderExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
                             }
-                            val backgroundsDir = File("src/main/resources/backgrounds")
-                            val randomImage = if (backgroundsDir.exists() && backgroundsDir.isDirectory) {
-                                backgroundsDir.listFiles()?.randomOrNull()?.absolutePath
-                            } else {
-                                null
-                            }
-                            log("Creating build with version: $finalVersion")
-                            onAdd(name, finalVersion, buildType, randomImage)
-                        },
-                        enabled = name.isNotBlank() && selectedMcVersion.isNotBlank() && (buildType == BuildType.VANILLA || selectedLoaderVersion.isNotBlank())
-                    ) { Text("Создать") }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                    }
+
+                    Spacer(Modifier.weight(1f))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { visibleState.targetState = false }) { Text("Отмена") }
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                val finalVersion = when (buildType) {
+                                    BuildType.FABRIC -> "$selectedMcVersion-fabric-$selectedLoaderVersion"
+                                    BuildType.FORGE -> "$selectedMcVersion-forge-$selectedLoaderVersion"
+                                    else -> selectedMcVersion
+                                }
+                                val backgroundsDir = File("src/main/resources/backgrounds")
+                                val randomImage = if (backgroundsDir.exists() && backgroundsDir.isDirectory) {
+                                    backgroundsDir.listFiles()?.randomOrNull()?.absolutePath
+                                } else {
+                                    null
+                                }
+                                log("Creating build with version: $finalVersion")
+                                onAdd(name, finalVersion, buildType, randomImage)
+                                visibleState.targetState = false
+                            },
+                            enabled = name.isNotBlank() && selectedMcVersion.isNotBlank() && (buildType == BuildType.VANILLA || selectedLoaderVersion.isNotBlank())
+                        ) { Text("Создать") }
+                    }
                 }
             }
         }

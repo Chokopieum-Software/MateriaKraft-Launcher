@@ -28,12 +28,14 @@ object AppInfo {
     val version: String
     val buildNumber: String
     val buildSource: String
+    val gradleVersion: String
     init {
         val props = Properties()
         props.load(this.javaClass.classLoader.getResourceAsStream("app.properties"))
         version = props.getProperty("version")
         buildNumber = props.getProperty("buildNumber")
         buildSource = props.getProperty("buildSource", "Unknown")
+        gradleVersion = props.getProperty("gradleVersion", "N/A")
     }
 }
 
@@ -141,7 +143,7 @@ fun SettingsTab(
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text = "Version: ${AppInfo.version} (Build ${AppInfo.buildNumber}) | Source: ${AppInfo.buildSource}",
+                text = "Version: ${AppInfo.version} (Build ${AppInfo.buildNumber}) | Source: ${AppInfo.buildSource} | Gradle: ${AppInfo.gradleVersion}",
                 style = MaterialTheme.typography.labelSmall,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurface

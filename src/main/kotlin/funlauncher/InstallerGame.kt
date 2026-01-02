@@ -90,7 +90,7 @@ data class VersionProfile(
 
 // === Installer ===
 
-class MinecraftInstaller(private val build: MinecraftBuild) {
+class MinecraftInstaller(private val build: MinecraftBuild, private val buildManager: BuildManager) {
     private val gameDir: Path = Paths.get(build.installPath)
     private val launcherDataDir: Path = PathManager.getAppDataDirectory()
     private val globalAssetsDir: Path = launcherDataDir.resolve("assets")
@@ -119,8 +119,8 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
 
     private fun log(message: String) { logChannel.trySend(message) }
 
-    suspend fun launchOffline(
-        username: String, javaPath: String, maxRamMb: Int, javaArgs: String, envVars: String, showConsole: Boolean
+    suspend fun launch(
+        account: Account, javaPath: String, maxRamMb: Int, javaArgs: String, envVars: String, showConsole: Boolean
     ): Process {
         val task = DownloadManager.startTask("Minecraft ${build.version}")
         try {
@@ -146,7 +146,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
             extractNatives(versionInfo)
 
             DownloadManager.updateTask(task.id, 1.0f, "Запуск...")
-            val command = buildLaunchCommand(versionInfo, username, javaPath, maxRamMb, javaArgs)
+            val command = buildLaunchCommand(versionInfo, account, javaPath, maxRamMb, javaArgs)
             val processBuilder = ProcessBuilder(command).directory(gameDir.toFile()).redirectErrorStream(true)
 
             if (envVars.isNotBlank()) {
@@ -177,7 +177,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         } catch (e: Exception) {
             when (e) {
                 is UnknownHostException, is ConnectException, is HttpRequestTimeoutException -> {
-                    val versionId = build.version
+                    val versionId = build.modloaderVersion ?: build.version
                     val jsonFile = globalVersionsDir.resolve(versionId).resolve("$versionId.json")
                     val message = if (jsonFile.exists()) {
                         "Не удалось скачать некоторые файлы игры. Проверьте подключение к интернету и попробуйте снова."
@@ -237,7 +237,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
     }
 
     private suspend fun getVersionInfo(): VersionInfo {
-        val versionId = build.version
+        val versionId = build.modloaderVersion ?: build.version
         val jsonFile = globalVersionsDir.resolve(versionId).resolve("$versionId.json")
 
         if (jsonFile.exists()) {
@@ -251,7 +251,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
 
         val resultInfo = when (build.type) {
             BuildType.FABRIC -> {
-                val (gameVersion, loaderVersion) = parseFabricVersion(versionId)
+                val (gameVersion, loaderVersion) = parseFabricVersion(build.version)
                 val vanillaInfo = getVanillaVersionInfo(gameVersion)
                 val fabricProfileUrl = "https://meta.fabricmc.net/v2/versions/loader/$gameVersion/$loaderVersion/profile/json"
                 val fabricProfile = client.get(fabricProfileUrl).body<FabricProfile>()
@@ -259,6 +259,8 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
                 if (fabricProfile.id == null || fabricProfile.mainClass == null) {
                     throw IllegalStateException("Failed to get valid Fabric profile. The server might have returned an error or the version is invalid.")
                 }
+
+                buildManager.updateBuildModloaderVersion(build.name, fabricProfile.id)
 
                 vanillaInfo.copy(
                     id = fabricProfile.id,
@@ -269,15 +271,17 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
                 )
             }
             BuildType.FORGE -> {
-                getForgeVersionInfo(versionId)
+                getForgeVersionInfo(build.version)
             }
             BuildType.VANILLA -> {
-                getVanillaVersionInfo(versionId)
+                getVanillaVersionInfo(build.version)
             }
         }
 
-        jsonFile.parent.createDirectories()
-        jsonFile.writeText(json.encodeToString(resultInfo))
+        val finalVersionId = if (build.type == BuildType.FABRIC) resultInfo.id else versionId
+        val finalJsonFile = globalVersionsDir.resolve(finalVersionId).resolve("$finalVersionId.json")
+        finalJsonFile.parent.createDirectories()
+        finalJsonFile.writeText(json.encodeToString(resultInfo))
         return resultInfo
     }
 
@@ -307,6 +311,8 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
 
         val versionProfile = json.decodeFromString<VersionProfile>(profileJsonPath.readText())
         val vanillaInfo = getVanillaVersionInfo(versionProfile.inheritsFrom)
+
+        buildManager.updateBuildModloaderVersion(build.name, versionProfile.id)
 
         return vanillaInfo.copy(
             id = versionProfile.id,
@@ -465,7 +471,7 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
         }
     }
 
-    private fun buildLaunchCommand(info: VersionInfo, username: String, javaPath: String, maxRamMb: Int, customJavaArgs: String): List<String> {
+    private fun buildLaunchCommand(info: VersionInfo, account: Account, javaPath: String, maxRamMb: Int, customJavaArgs: String): List<String> {
         // 1. Собираем Classpath
         val cpList = mutableListOf<String>()
         info.libraries.filter { isLibraryAllowed(it) }.forEach { lib ->
@@ -487,15 +493,15 @@ class MinecraftInstaller(private val build: MinecraftBuild) {
             "launcher_name" to "MateriaKraft",
             "launcher_version" to "1.0",
             "classpath" to classpath,
-            "auth_player_name" to username,
+            "auth_player_name" to account.username,
             "version_name" to info.id,
             "game_directory" to gameDir.toAbsolutePath().toString(),
             "assets_root" to globalAssetsDir.toAbsolutePath().toString(),
             "assets_index_name" to info.assetIndex.id,
-            "auth_uuid" to UUID.nameUUIDFromBytes(username.toByteArray()).toString(),
-            "auth_access_token" to "0",
+            "auth_uuid" to (account.uuid ?: UUID.nameUUIDFromBytes(account.username.toByteArray()).toString()),
+            "auth_access_token" to (account.accessToken ?: "0"),
             "user_properties" to "{}",
-            "user_type" to "msa",
+            "user_type" to if (account.isLicensed) "msa" else "legacy",
             "version_type" to build.type.name,
             "clientid" to "clientId",
             "auth_xuid" to "xuid",

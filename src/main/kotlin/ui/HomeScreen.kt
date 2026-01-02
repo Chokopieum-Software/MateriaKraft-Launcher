@@ -36,6 +36,7 @@ import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import funlauncher.Account
+import funlauncher.BuildType
 import funlauncher.MinecraftBuild
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -120,6 +121,20 @@ fun HomeScreen(
                     onSettingsClick = { onSettingsBuildClick(build) }
                 )
             }
+        }
+    }
+}
+
+private fun formatBuildVersion(build: MinecraftBuild): String {
+    return when (build.type) {
+        BuildType.VANILLA -> build.version
+        BuildType.FABRIC -> {
+            val parts = build.version.split("-fabric-")
+            if (parts.size == 2) "${parts[0]} - ${parts[1]}" else build.version
+        }
+        BuildType.FORGE -> {
+            val parts = build.version.split("-forge-")
+            if (parts.size == 2) "${parts[0]} - ${parts[1]}" else build.version
         }
     }
 }
@@ -220,7 +235,7 @@ private fun BuildCard(
 
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = "${build.type} ${build.version}",
+                            text = formatBuildVersion(build),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                             maxLines = 1,

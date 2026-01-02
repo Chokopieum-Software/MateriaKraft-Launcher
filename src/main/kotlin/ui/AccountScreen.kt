@@ -8,6 +8,13 @@
 
 package ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,12 +40,12 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountScreen(
+    accounts: List<Account>,
     accountManager: AccountManager,
     onDismiss: () -> Unit,
     onAccountSelected: (Account) -> Unit,
     onAccountsUpdated: () -> Unit
 ) {
-    var accounts by remember { mutableStateOf(accountManager.getAccounts()) }
     var showAddAccountTypeDialog by remember { mutableStateOf(false) }
     var showAddOfflineAccountDialog by remember { mutableStateOf(false) }
     var accountToDelete by remember { mutableStateOf<Account?>(null) }
@@ -47,51 +54,64 @@ fun AccountScreen(
     var isLoggingIn by remember { mutableStateOf(false) }
     var showBrowserLoginDialog by remember { mutableStateOf(false) }
 
-    val hasLicensedAccount = remember(accounts) { accountManager.hasLicensedAccount() }
+    val hasLicensedAccount = remember(accounts) { accounts.any { it.isLicensed } }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Scaffold(
-            topBar = {
-                TopAppBar(title = { Text("Аккаунты") })
-            },
-            floatingActionButton = {
-                ExtendedFloatingActionButton(
-                    text = { Text("Добавить") },
-                    icon = { Icon(Icons.Default.Add, contentDescription = "Добавить аккаунт") },
-                    onClick = { showAddAccountTypeDialog = true }
-                )
-            }
-        ) { paddingValues ->
-            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-                if (accounts.isEmpty()) {
-                    Text("Нет добавленных аккаунтов.", modifier = Modifier.align(Alignment.Center))
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(accounts, key = { it.uuid }) { account ->
-                            ListItem(
-                                headlineContent = { Text(account.username) },
-                                supportingContent = {
-                                    when (account) {
-                                        is OfflineAccount -> Text("Оффлайн")
-                                        is MicrosoftAccount -> Text("Microsoft")
-                                    }
-                                },
-                                trailingContent = {
-                                    IconButton(onClick = { accountToDelete = account }) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Удалить", tint = Color.Red)
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth().clickable { onAccountSelected(account) }
-                            )
+    val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
+    LaunchedEffect(visibleState.currentState) {
+        if (!visibleState.currentState && !visibleState.targetState) {
+            onDismiss()
+        }
+    }
+
+    Dialog(onDismissRequest = { visibleState.targetState = false }) {
+        AnimatedVisibility(
+            visibleState = visibleState,
+            enter = fadeIn(tween(250)) + slideInVertically(tween(250)) { it / 8 },
+            exit = fadeOut(tween(250)) + slideOutVertically(tween(250)) { it / 8 }
+        ) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(title = { Text("Аккаунты") })
+                },
+                floatingActionButton = {
+                    ExtendedFloatingActionButton(
+                        text = { Text("Добавить") },
+                        icon = { Icon(Icons.Default.Add, contentDescription = "Добавить аккаунт") },
+                        onClick = { showAddAccountTypeDialog = true }
+                    )
+                }
+            ) { paddingValues ->
+                Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                    if (accounts.isEmpty()) {
+                        Text("Нет добавленных аккаунтов.", modifier = Modifier.align(Alignment.Center))
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(accounts, key = { it.uuid ?: it.username }) { account ->
+                                ListItem(
+                                    headlineContent = { Text(account.username) },
+                                    supportingContent = {
+                                        when (account) {
+                                            is OfflineAccount -> Text("Оффлайн")
+                                            is MicrosoftAccount -> Text("Microsoft")
+                                        }
+                                    },
+                                    trailingContent = {
+                                        IconButton(onClick = { accountToDelete = account }) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Удалить", tint = Color.Red)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth().clickable { onAccountSelected(account) }
+                                )
+                            }
                         }
                     }
-                }
-                if (isLoggingIn) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                    if (isLoggingIn) {
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                    }
                 }
             }
         }
@@ -125,7 +145,6 @@ fun AccountScreen(
                         }
                         showBrowserLoginDialog = false
                         if (success) {
-                            accounts = accountManager.getAccounts()
                             onAccountsUpdated()
                         } else {
                             errorMessage = "Не удалось войти через Microsoft."
@@ -169,7 +188,6 @@ fun AccountScreen(
                 Button(onClick = {
                     val newAccount = OfflineAccount(username)
                     if (accountManager.addAccount(newAccount)) {
-                        accounts = accountManager.getAccounts()
                         onAccountsUpdated()
                         showAddOfflineAccountDialog = false
                         errorMessage = null
@@ -193,7 +211,6 @@ fun AccountScreen(
                 Button(
                     onClick = {
                         accountManager.deleteAccount(account)
-                        accounts = accountManager.getAccounts()
                         onAccountsUpdated()
                         accountToDelete = null
                     },
