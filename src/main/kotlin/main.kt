@@ -108,7 +108,9 @@ fun App(
     var showCheckmark by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        val (synchronizedBuilds, newCount) = buildManager.synchronizeBuilds()
+        val (synchronizedBuilds, newCount) = withContext(Dispatchers.IO) {
+            buildManager.synchronizeBuilds()
+        }
         if (synchronizedBuilds.size != buildList.size || synchronizedBuilds != buildList) {
             buildList.clear()
             buildList.addAll(synchronizedBuilds)
@@ -121,7 +123,9 @@ fun App(
 
     fun refreshBuilds() {
         scope.launch {
-            val freshBuilds = buildManager.loadBuilds()
+            val freshBuilds = withContext(Dispatchers.IO) {
+                buildManager.loadBuilds()
+            }
             buildList.clear()
             buildList.addAll(freshBuilds)
         }

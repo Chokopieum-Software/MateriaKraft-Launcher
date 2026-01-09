@@ -1,0 +1,93 @@
+# Maintainer: Твое Имя <email@example.com>
+pkgname=materiakraft-launcher-git
+pkgver=r69.b440ccd
+pkgrel=1
+pkgdesc="MateriaKraft Launcher (Kotlin Multiplatform)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/Chokopieum-Software/MateriaKraft-Launcher"
+license=('custom')
+depends=('glibc' 'gcc-libs' 'zlib' 'freetype2' 'fontconfig' 'libx11' 'libxext' 'libxrender' 'libxtst' 'alsa-lib')
+makedepends=('git' 'jdk25-openjdk')
+source=("git+https://github.com/Chokopieum-Software/MateriaKraft-Launcher.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "MateriaKraft-Launcher"
+    printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+    cd "MateriaKraft-Launcher"
+    chmod +x gradlew
+}
+
+build() {
+    cd "MateriaKraft-Launcher"
+    export BUILD_SOURCE=AUR
+
+    # Настройка Java 25
+    if [ -d "/usr/lib/jvm/java-25-openjdk" ]; then
+        export JAVA_HOME="/usr/lib/jvm/java-25-openjdk"
+    fi
+
+    ./gradlew createDistributable --no-daemon
+}
+
+package() {
+    cd "MateriaKraft-Launcher"
+
+    # --- 1. Установка программы ---
+    echo "Ищем папку 'materia-launcher'..."
+    # Ищем папку результата сборки (исключаем кэши и временные файлы)
+    _dist_dir=$(find build -type d -name "materia-launcher" | grep "/app/" | head -n 1)
+
+    if [ -z "$_dist_dir" ]; then
+        echo "ОШИБКА: Папка 'materia-launcher' не найдена в build/."
+        exit 1
+    fi
+
+    install -d "$pkgdir/opt/$pkgname"
+    cp -r "$_dist_dir"/* "$pkgdir/opt/$pkgname/"
+
+    # --- 2. Создание запускающего скрипта ---
+    install -d "$pkgdir/usr/bin"
+    # Ищем любой исполняемый файл внутри bin (обычно 'materia-launcher')
+    _bin_name=$(find "$pkgdir/opt/$pkgname/bin" -maxdepth 1 -type f -executable -printf "%f\n" | head -n 1)
+
+    if [ -z "$_bin_name" ]; then
+        echo "ОШИБКА: Бинарный файл не найден в bin/"
+        exit 1
+    fi
+
+    echo "#!/bin/sh" > "$pkgdir/usr/bin/materiakraft-launcher"
+    echo "cd /opt/$pkgname/bin" >> "$pkgdir/usr/bin/materiakraft-launcher"
+    echo "./$_bin_name \"\$@\"" >> "$pkgdir/usr/bin/materiakraft-launcher"
+    chmod 755 "$pkgdir/usr/bin/materiakraft-launcher"
+
+    # --- 3. Поиск и установка иконки ---
+    echo "Поиск иконки materia-launcher.png..."
+
+    # Ищем файл конкретно с этим именем, исключая папку build (чтобы не взять копию из скомпилированных ресурсов)
+    _icon_file=$(find . -type f -name "materia-launcher.png" -not -path "*/build/*" | head -n 1)
+
+    if [ -n "$_icon_file" ]; then
+        # Копируем и переименовываем в имя пакета (стандарт Arch)
+        install -Dm644 "$_icon_file" "$pkgdir/usr/share/pixmaps/$pkgname.png"
+        echo "Иконка установлена: $_icon_file -> /usr/share/pixmaps/$pkgname.png"
+    else
+        echo "ПРЕДУПРЕЖДЕНИЕ: Файл materia-launcher.png не найден в исходниках!"
+    fi
+
+    # --- 4. Создание .desktop файла ---
+    echo "[Desktop Entry]" > "$pkgname.desktop"
+    echo "Type=Application" >> "$pkgname.desktop"
+    echo "Name=MateriaKraft Launcher" >> "$pkgname.desktop"
+    echo "Comment=Launcher for MateriaKraft" >> "$pkgname.desktop"
+    echo "Exec=/usr/bin/materiakraft-launcher" >> "$pkgname.desktop"
+    # Указываем имя иконки равное имени пакета (без .png), так как мы сохранили её выше как $pkgname.png
+    echo "Icon=$pkgname" >> "$pkgname.desktop"
+    echo "Categories=Game;Utility;" >> "$pkgname.desktop"
+    echo "Terminal=false" >> "$pkgname.desktop"
+
+    install -Dm644 "$pkgname.desktop" "$pkgdir/usr/share/applications/$pkgname.desktop"
+}
