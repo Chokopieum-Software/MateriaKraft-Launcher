@@ -1,6 +1,6 @@
 # Maintainer: Твое Имя <email@example.com>
 pkgname=materiakraft-launcher-git
-pkgver=r69.b440ccd
+pkgver=r70.55a154a
 pkgrel=1
 pkgdesc="MateriaKraft Launcher (Kotlin Multiplatform)"
 arch=('x86_64' 'aarch64')

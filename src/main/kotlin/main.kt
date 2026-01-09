@@ -149,8 +149,10 @@ fun App(
         if (gameProcess != null) {
             scope.launch(Dispatchers.IO) {
                 gameProcess?.waitFor()
-                gameProcess = null
-                selectedBuild = null
+                withContext(Dispatchers.Main) {
+                    gameProcess = null
+                    selectedBuild = null
+                }
             }
         }
     }
@@ -165,14 +167,16 @@ fun App(
             val finalJavaArgs = build.javaArgs ?: appState.settings.javaArgs
             val finalEnvVars = build.envVars ?: appState.settings.envVars
 
-            val process = installer.launch(
-                account = account,
-                javaPath = javaPath,
-                maxRamMb = finalMaxRam,
-                javaArgs = finalJavaArgs,
-                envVars = finalEnvVars,
-                showConsole = appState.settings.showConsoleOnLaunch
-            )
+            val process = withContext(Dispatchers.IO) {
+                installer.launch(
+                    account = account,
+                    javaPath = javaPath,
+                    maxRamMb = finalMaxRam,
+                    javaArgs = finalJavaArgs,
+                    envVars = finalEnvVars,
+                    showConsole = appState.settings.showConsoleOnLaunch
+                )
+            }
             gameProcess = process
         } catch (e: Exception) {
             e.printStackTrace()
