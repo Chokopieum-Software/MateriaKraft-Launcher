@@ -21,14 +21,14 @@ import kotlin.io.path.*
  * Fetches and parses version metadata for Vanilla, Fabric, and Forge.
  * It prioritizes using local cache before reaching out to the network.
  */
-class VersionMetadataFetcher(private val buildManager: BuildManager) {
+class VersionMetadataFetcher(private val buildManager: BuildManager, private val pathManager: PathManager) {
     private val json = Network.json
     private val client = Network.client
 
-    private val globalVersionsDir: Path = PathManager.getGlobalVersionsDir()
-    private val globalLibrariesDir: Path = PathManager.getGlobalLibrariesDir()
-    private val launcherDataDir: Path = PathManager.getAppDataDirectory()
-    private val cacheDir: Path = PathManager.getCacheDir()
+    private val globalVersionsDir: Path = pathManager.getGlobalVersionsDir()
+    private val globalLibrariesDir: Path = pathManager.getGlobalLibrariesDir()
+    private val launcherDataDir: Path = pathManager.getAppDataDirectory()
+    private val cacheDir: Path = pathManager.getCacheDir()
 
     private fun log(message: String) = println("[VersionFetcher] $message")
 

@@ -78,7 +78,8 @@ fun App(
     buildManager: BuildManager,
     javaManager: JavaManager,
     accountManager: AccountManager,
-    javaDownloader: JavaDownloader
+    javaDownloader: JavaDownloader,
+    pathManager: PathManager
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -274,7 +275,8 @@ fun App(
                                 onModpackInstalled = {
                                     refreshBuilds()
                                     currentTab = AppTab.Home
-                                }
+                                },
+                                pathManager = pathManager
                             )
                             AppTab.Settings -> SettingsTab(
                                 currentSettings = appState.settings,
@@ -418,7 +420,8 @@ fun App(
                             errorDialogMessage = e.message
                         }
                     }
-                }
+                },
+                pathManager = pathManager
             )
         }
         showBuildSettingsScreen?.let { build ->
@@ -446,7 +449,8 @@ fun App(
                             errorDialogMessage = e.message
                         }
                     }
-                }
+                },
+                pathManager = pathManager
             )
         }
         if (showAccountScreen) {
@@ -596,15 +600,17 @@ fun main() {
         val scope = rememberCoroutineScope()
 
         // Ленивая инициализация менеджеров
-        val settingsManager by lazy { SettingsManager() }
-        val buildManager by lazy { BuildManager() }
-        val accountManager by lazy { AccountManager() }
-        val javaManager by lazy { JavaManager() }
-        val javaDownloader by lazy { JavaDownloader() }
+        val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
+        val settingsManager by lazy { SettingsManager(pathManager) }
+        val buildManager by lazy { BuildManager(pathManager) }
+        val accountManager by lazy { AccountManager(pathManager) }
+        val javaManager by lazy { JavaManager(pathManager) }
+        val javaDownloader by lazy { JavaDownloader(pathManager, javaManager) }
+        val cacheManager by lazy { CacheManager(pathManager) }
 
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
-                CacheManager.updateAllCaches()
+                cacheManager.updateAllCaches()
             }
         }
 
@@ -612,7 +618,7 @@ fun main() {
             if (currentScreen is Screen.Splash) {
                 isContentReady = false // Сбрасываем готовность при возврате на сплеш
                 scope.launch(Dispatchers.IO) {
-                    if (PathManager.isFirstRunRequired()) {
+                    if (pathManager.isFirstRunRequired()) {
                         withContext(Dispatchers.Main) {
                             currentScreen = Screen.FirstRunWizard
                         }
@@ -667,7 +673,7 @@ fun main() {
                             onThemeChange = { wizardTheme = it },
                             onWizardComplete = { newSettings ->
                                 scope.launch(Dispatchers.IO) {
-                                    PathManager.createRequiredDirectories()
+                                    pathManager.createRequiredDirectories()
                                     settingsManager.saveSettings(newSettings)
                                     currentScreen = Screen.Splash
                                 }
@@ -697,7 +703,8 @@ fun main() {
                             buildManager = buildManager,
                             javaManager = javaManager,
                             accountManager = accountManager,
-                            javaDownloader = javaDownloader
+                            javaDownloader = javaDownloader,
+                            pathManager = pathManager
                         )
                         SideEffect { if (!isContentReady) isContentReady = true }
                     }

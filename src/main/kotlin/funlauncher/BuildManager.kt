@@ -45,8 +45,8 @@ data class MinecraftBuild(
 )
 
 @OptIn(ExperimentalPathApi::class)
-class BuildManager {
-    private val launcherPath: Path = PathManager.getAppDataDirectory()
+class BuildManager(private val pathManager: PathManager) {
+    private val launcherPath: Path = pathManager.getAppDataDirectory()
     private val instancesPath: Path = launcherPath.resolve("instances")
     private val versionsPath: Path = launcherPath.resolve("versions")
     private val buildsFilePath: Path = launcherPath.resolve("builds.json")

@@ -4,6 +4,7 @@ import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.tasks.Copy
 import org.gradle.jvm.tasks.Jar
 import java.util.Properties
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     kotlin("jvm") version "2.3.0"
@@ -53,6 +54,11 @@ dependencies {
     // === Работа с архивами ===
     implementation("org.apache.commons:commons-compress:1.26.2")
     implementation("org.apache.commons:commons-lang3:3.18.0")
+
+    // === Тестирование ===
+    testImplementation(kotlin("test-junit5"))
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.3")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.3")
 }
 
 kotlin {
@@ -96,6 +102,10 @@ afterEvaluate {
         duplicatesStrategy = DuplicatesStrategy.EXCLUDE
         exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     }
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
 }
 
 tasks.named<Copy>("processResources") {

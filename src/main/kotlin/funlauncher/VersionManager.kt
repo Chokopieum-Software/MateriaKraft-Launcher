@@ -25,11 +25,11 @@ data class ForgeVersion(
     val isLatest: Boolean = false
 )
 
-class VersionManager {
+class VersionManager(pathManager: PathManager) {
 
     private val json = Network.json
     private val client = Network.client
-    private val cacheDir: Path = PathManager.getCacheDir()
+    private val cacheDir: Path = pathManager.getCacheDir()
 
     private fun log(message: String) {
         println("[VersionManager] $message")

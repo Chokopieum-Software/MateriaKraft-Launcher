@@ -34,7 +34,11 @@ private fun log(message: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType, String?) -> Unit) {
+fun AddBuildDialog(
+    onDismiss: () -> Unit,
+    onAdd: (String, String, BuildType, String?) -> Unit,
+    pathManager: PathManager
+) {
     log("Composing AddBuildDialog.")
 
     var name by remember { mutableStateOf("") }
@@ -51,7 +55,7 @@ fun AddBuildDialog(onDismiss: () -> Unit, onAdd: (String, String, BuildType, Str
     var isLoading by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
-    val versionManager = remember { VersionManager() }
+    val versionManager = remember { VersionManager(pathManager) }
 
     val displayedGameVersions = remember(buildType, vanillaVersions, fabricGameVersions, forgeVersions) {
         log("Recalculating displayed game versions. Build type: $buildType")

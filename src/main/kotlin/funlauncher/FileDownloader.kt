@@ -20,13 +20,17 @@ import kotlin.io.path.*
 /**
  * Handles downloading of game files, including libraries and assets.
  */
-class FileDownloader(private val versionInfo: VersionInfo) {
+class FileDownloader(
+    private val versionInfo: VersionInfo,
+    private val pathManager: PathManager,
+    private val buildManager: BuildManager
+) {
     private val client = Network.client
     private val json = Network.json
 
-    private val globalAssetsDir: Path = PathManager.getGlobalAssetsDir()
-    private val globalVersionsDir: Path = PathManager.getGlobalVersionsDir()
-    private val globalLibrariesDir: Path = PathManager.getGlobalLibrariesDir()
+    private val globalAssetsDir: Path = pathManager.getGlobalAssetsDir()
+    private val globalVersionsDir: Path = pathManager.getGlobalVersionsDir()
+    private val globalLibrariesDir: Path = pathManager.getGlobalLibrariesDir()
 
     private val availableCores = Runtime.getRuntime().availableProcessors()
     private val librarySemaphore = Semaphore(availableCores * 4)
@@ -41,7 +45,7 @@ class FileDownloader(private val versionInfo: VersionInfo) {
         if (!clientJarPath.exists()) {
             // This needs the vanilla info, which we assume is already fetched.
             // A better approach would be to pass the vanilla info URL directly.
-            val vanillaInfoForJar = VersionMetadataFetcher(BuildManager()).getVersionInfo(build.copy(type = BuildType.VANILLA, version = gameVersionForJar))
+            val vanillaInfoForJar = VersionMetadataFetcher(buildManager, pathManager).getVersionInfo(build.copy(type = BuildType.VANILLA, version = gameVersionForJar))
             downloadFile(vanillaInfoForJar.downloads.client.url, clientJarPath, "Client JAR")
         }
 

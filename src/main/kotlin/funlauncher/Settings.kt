@@ -43,8 +43,8 @@ data class AppSettings(
     val navPanelPosition: NavPanelPosition = NavPanelPosition.Left
 )
 
-class SettingsManager {
-    private val settingsPath = PathManager.getAppDataDirectory().resolve("settings.json")
+class SettingsManager(pathManager: PathManager) {
+    private val settingsPath = pathManager.getAppDataDirectory().resolve("settings.json")
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
 
     suspend fun loadSettings(): AppSettings = withContext(Dispatchers.IO) {

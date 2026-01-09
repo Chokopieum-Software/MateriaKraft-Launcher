@@ -12,31 +12,12 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 
-object PathManager {
+class PathManager(private val rootDir: Path) {
 
     /**
      * Возвращает корневую папку для всех данных лаунчера.
-     * - Windows: %APPDATA%/.MateriaLauncher
-     * - Linux/macOS: ~/.MateriaLauncher
      */
-    fun getAppDataDirectory(): Path {
-        val osName = System.getProperty("os.name").lowercase()
-        val userHome = System.getProperty("user.home")
-        val launcherDirName = ".MateriaLauncher"
-
-        return when {
-            // Для Windows используем AppData/Roaming
-            osName.contains("win") -> {
-                val appData = System.getenv("APPDATA")
-                val basePath = if (!appData.isNullOrBlank()) Paths.get(appData) else Paths.get(userHome)
-                basePath.resolve(launcherDirName)
-            }
-            // Для Linux, macOS и других систем используем домашнюю директорию
-            else -> {
-                Paths.get(userHome, launcherDirName)
-            }
-        }
-    }
+    fun getAppDataDirectory(): Path = rootDir
 
     /**
      * Возвращает путь к глобальной папке с ассетами.
@@ -82,5 +63,29 @@ object PathManager {
         Files.createDirectories(getGlobalAssetsDir())
         Files.createDirectories(getCacheDir())
         Files.createDirectories(getAppDataDirectory().resolve("jdks"))
+    }
+
+    companion object {
+        /**
+         * Возвращает путь по умолчанию для данных лаунчера.
+         * - Windows: %APPDATA%/.MateriaLauncher
+         * - Linux/macOS: ~/.MateriaLauncher
+         */
+        fun getDefaultAppDataDirectory(): Path {
+            val osName = System.getProperty("os.name").lowercase()
+            val userHome = System.getProperty("user.home")
+            val launcherDirName = ".MateriaLauncher"
+
+            return when {
+                osName.contains("win") -> {
+                    val appData = System.getenv("APPDATA")
+                    val basePath = if (!appData.isNullOrBlank()) Paths.get(appData) else Paths.get(userHome)
+                    basePath.resolve(launcherDirName)
+                }
+                else -> {
+                    Paths.get(userHome, launcherDirName)
+                }
+            }
+        }
     }
 }

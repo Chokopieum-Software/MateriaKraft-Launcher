@@ -158,7 +158,8 @@ fun BuildSettingsScreen(
     build: MinecraftBuild,
     globalSettings: AppSettings,
     onDismiss: () -> Unit,
-    onSave: (newName: String, newVersion: String, newType: BuildType, newImagePath: String?, javaPath: String?, maxRam: Int?, javaArgs: String?, envVars: String?) -> Unit
+    onSave: (newName: String, newVersion: String, newType: BuildType, newImagePath: String?, javaPath: String?, maxRam: Int?, javaArgs: String?, envVars: String?) -> Unit,
+    pathManager: PathManager
 ) {
     var selectedTab by remember { mutableStateOf(SettingsTab.Main) }
 
@@ -253,7 +254,8 @@ fun BuildSettingsScreen(
                             useGlobalEnvVars = useGlobalEnvVars, onUseGlobalEnvVarsChange = { useGlobalEnvVars = it },
                             maxRam = maxRam, onMaxRamChange = { maxRam = it },
                             javaArgs = javaArgs, onJavaArgsChange = { javaArgs = it },
-                            envVars = envVars, onEnvVarsChange = { envVars = it }
+                            envVars = envVars, onEnvVarsChange = { envVars = it },
+                            pathManager = pathManager
                         )
                         SettingsTab.Mods -> ModsTab(build = build)
                         SettingsTab.Worlds -> WorldsTab(build = build)
@@ -512,12 +514,13 @@ private fun MainSettingsTab(
     useGlobalEnvVars: Boolean, onUseGlobalEnvVarsChange: (Boolean) -> Unit,
     maxRam: Int, onMaxRamChange: (Int) -> Unit,
     javaArgs: String, onJavaArgsChange: (String) -> Unit,
-    envVars: String, onEnvVarsChange: (String) -> Unit
+    envVars: String, onEnvVarsChange: (String) -> Unit,
+    pathManager: PathManager
 ) {
     val scope = rememberCoroutineScope()
-    val versionManager = remember { VersionManager() }
-    val buildManager = remember { BuildManager() }
-    val javaManager = remember { JavaManager() }
+    val versionManager = remember { VersionManager(pathManager) }
+    val buildManager = remember { BuildManager(pathManager) }
+    val javaManager = remember { JavaManager(pathManager) }
 
     var javaInstallations by remember { mutableStateOf<List<JavaInfo>>(emptyList()) }
     var allMcVersions by remember { mutableStateOf<List<MinecraftVersion>>(emptyList()) }

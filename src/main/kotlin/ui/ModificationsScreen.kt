@@ -168,13 +168,15 @@ fun ModificationsScreen(
     onBack: () -> Unit,
     navPanelPosition: NavPanelPosition,
     buildManager: BuildManager,
-    onModpackInstalled: () -> Unit
+    onModpackInstalled: () -> Unit,
+    pathManager: PathManager
 ) {
     val scope = rememberCoroutineScope()
     val modrinthApi = remember { ModrinthApi() }
     val modificationDownloader = remember { ModificationDownloader() }
     // Используем глобальный scope для установщика
     val modpackInstaller = remember { ModpackInstaller(buildManager, modrinthApi, ApplicationScope.scope) }
+    val cacheManager = remember { CacheManager(pathManager) }
 
     var searchQuery by remember { mutableStateOf("") }
     var searchResult by remember { mutableStateOf<SearchResult?>(null) }
@@ -204,11 +206,11 @@ fun ModificationsScreen(
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            val cachedVersions = CacheManager.getVanillaVersions()
+            val cachedVersions = cacheManager.getVanillaVersions()
             if (cachedVersions.isEmpty()) {
                 try {
-                    CacheManager.updateAllCaches()
-                    versions.addAll(CacheManager.getVanillaVersions())
+                    cacheManager.updateAllCaches()
+                    versions.addAll(cacheManager.getVanillaVersions())
                 } catch (_: Exception) {
                     // Handle exceptions
                 }

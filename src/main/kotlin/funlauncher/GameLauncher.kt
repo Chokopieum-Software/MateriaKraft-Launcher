@@ -22,12 +22,16 @@ import kotlin.io.path.pathString
 /**
  * Handles the final steps of launching the game: extracting natives and building the launch command.
  */
-class GameLauncher(private val versionInfo: VersionInfo, private val build: MinecraftBuild) {
+class GameLauncher(
+    private val versionInfo: VersionInfo,
+    private val build: MinecraftBuild,
+    private val pathManager: PathManager
+) {
 
-    private val nativesDir: Path = PathManager.getNativesDir(build)
-    private val globalLibrariesDir: Path = PathManager.getGlobalLibrariesDir()
-    private val globalVersionsDir: Path = PathManager.getGlobalVersionsDir()
-    private val globalAssetsDir: Path = PathManager.getGlobalAssetsDir()
+    private val nativesDir: Path = pathManager.getNativesDir(build)
+    private val globalLibrariesDir: Path = pathManager.getGlobalLibrariesDir()
+    private val globalVersionsDir: Path = pathManager.getGlobalVersionsDir()
+    private val globalAssetsDir: Path = pathManager.getGlobalAssetsDir()
     private val gameDir: Path = File(build.installPath).toPath()
 
     private fun log(message: String) = println("[GameLauncher] $message")

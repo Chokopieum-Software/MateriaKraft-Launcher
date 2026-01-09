@@ -44,7 +44,10 @@ private data class GitHubAsset(
     @SerialName("browser_download_url") val browserDownloadUrl: String
 )
 
-class JavaDownloader {
+class JavaDownloader(
+    private val pathManager: PathManager,
+    private val javaManager: JavaManager
+) {
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
@@ -54,7 +57,7 @@ class JavaDownloader {
             connectTimeoutMillis = 30000
         }
     }
-    private val jdksDir = PathManager.getAppDataDirectory().resolve("jdks")
+    private val jdksDir = pathManager.getAppDataDirectory().resolve("jdks")
 
     private fun log(message: String) = println("[JavaDownloader] $message")
 
@@ -98,7 +101,7 @@ class JavaDownloader {
                     } ?: throw Exception("Не удалось найти java в распакованной папке: $destDir")
                     log("Найден исполняемый файл: ${javaPath.absolutePathString()}")
 
-                    val javaInfo = JavaManager().getJavaInfo(javaPath.toString(), isManaged = true)
+                    val javaInfo = javaManager.getJavaInfo(javaPath.toString(), isManaged = true)
                     if (javaInfo != null) {
                         onComplete(Result.success(javaInfo))
                     } else {

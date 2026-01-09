@@ -18,8 +18,8 @@ import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
 import java.io.IOException
 
-class AccountManager {
-    private val accountsFile = PathManager.getAppDataDirectory().resolve("accounts.json").toFile()
+class AccountManager(pathManager: PathManager) {
+    private val accountsFile = pathManager.getAppDataDirectory().resolve("accounts.json").toFile()
     private val json = Json {
         prettyPrint = true
         ignoreUnknownKeys = true

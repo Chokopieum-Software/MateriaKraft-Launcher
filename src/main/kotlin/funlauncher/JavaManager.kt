@@ -31,8 +31,8 @@ data class JavaInstallations(
     val launcher: List<JavaInfo>
 )
 
-class JavaManager {
-    private val jdksDir = PathManager.getAppDataDirectory().resolve("jdks").toFile()
+class JavaManager(pathManager: PathManager) {
+    private val jdksDir = pathManager.getAppDataDirectory().resolve("jdks").toFile()
 
     fun getRecommendedJavaVersion(minecraftVersion: String): Int {
         val majorVersion = minecraftVersion.split(".")[1].toIntOrNull() ?: 0

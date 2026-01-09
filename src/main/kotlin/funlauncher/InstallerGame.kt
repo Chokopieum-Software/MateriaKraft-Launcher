@@ -19,6 +19,8 @@ import kotlin.io.path.exists
  */
 class MinecraftInstaller(private val build: MinecraftBuild, private val buildManager: BuildManager) {
 
+    private val pathManager: PathManager = PathManager(PathManager.getDefaultAppDataDirectory())
+
     private fun log(message: String) {
         println("[Installer] $message")
     }
@@ -33,19 +35,19 @@ class MinecraftInstaller(private val build: MinecraftBuild, private val buildMan
 
             // 1. Fetch Version Metadata
             DownloadManager.updateTask(task.id, 0.05f, "Получение метаданных...")
-            val metadataFetcher = VersionMetadataFetcher(buildManager)
+            val metadataFetcher = VersionMetadataFetcher(buildManager, pathManager)
             val versionInfo = metadataFetcher.getVersionInfo(build)
 
             // 2. Download Files
             DownloadManager.updateTask(task.id, 0.1f, "Загрузка файлов...")
-            val fileDownloader = FileDownloader(versionInfo)
+            val fileDownloader = FileDownloader(versionInfo, pathManager, buildManager)
             fileDownloader.downloadRequiredFiles(build) { progress, status ->
                 DownloadManager.updateTask(task.id, 0.1f + progress * 0.8f, status)
             }
 
             // 3. Launch Game
             DownloadManager.updateTask(task.id, 0.95f, "Запуск...")
-            val gameLauncher = GameLauncher(versionInfo, build)
+            val gameLauncher = GameLauncher(versionInfo, build, pathManager)
             val process = gameLauncher.launch(account, javaPath, maxRamMb, javaArgs, envVars, showConsole)
 
             DownloadManager.updateTask(task.id, 1.0f, "Запущено")
@@ -65,7 +67,7 @@ class MinecraftInstaller(private val build: MinecraftBuild, private val buildMan
         when (e) {
             is UnknownHostException, is ConnectException, is HttpRequestTimeoutException -> {
                 val versionId = build.modloaderVersion ?: build.version
-                val jsonFile = PathManager.getGlobalVersionsDir().resolve(versionId).resolve("$versionId.json")
+                val jsonFile = pathManager.getGlobalVersionsDir().resolve(versionId).resolve("$versionId.json")
                 val message = if (jsonFile.exists()) {
                     "Не удалось скачать некоторые файлы игры. Проверьте подключение к интернету и попробуйте снова."
                 } else {

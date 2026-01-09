@@ -22,13 +22,13 @@ import kotlin.io.path.writeBytes
 /**
  * Manages the background caching of version manifests and other remote resources.
  */
-object CacheManager {
+class CacheManager(pathManager: PathManager) {
     private val client = Network.client
-    private val cacheDir: Path = PathManager.getCacheDir()
+    private val cacheDir: Path = pathManager.getCacheDir()
     private val json = Json { ignoreUnknownKeys = true }
 
-    private const val VANILLA_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-    private const val FABRIC_LOADER_MANIFEST_URL = "https://meta.fabricmc.net/v2/versions/loader"
+    private val VANILLA_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+    private val FABRIC_LOADER_MANIFEST_URL = "https://meta.fabricmc.net/v2/versions/loader"
 
     /**
      * Updates all remote resources and stores them in the local cache.
