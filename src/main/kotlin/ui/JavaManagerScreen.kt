@@ -51,18 +51,20 @@ fun JavaManagerWindow(
     }
 
     fun install(version: Int) {
-        javaDownloader.downloadAndUnpack(version) { result ->
-            scope.launch {
-                result.fold(
-                    onSuccess = {
-                        status = "Java $version установлена!"
-                        refresh()
-                    },
-                    onFailure = {
-                        status = "Ошибка: ${it.message}"
-                        it.printStackTrace()
-                    }
-                )
+        scope.launch {
+            javaDownloader.downloadAndUnpack(version) { result ->
+                scope.launch {
+                    result.fold(
+                        onSuccess = {
+                            status = "Java $version установлена!"
+                            refresh()
+                        },
+                        onFailure = {
+                            status = "Ошибка: ${it.message}"
+                            it.printStackTrace()
+                        }
+                    )
+                }
             }
         }
     }

@@ -35,11 +35,17 @@ object ImageLoader {
 
     suspend fun loadAvatar(uuid: String?): ImageBitmap? {
         if (uuid == null) return null
-        return cache[uuid] ?: withContext(Dispatchers.IO) {
+        val url = "https://crafatar.com/avatars/$uuid?size=64&overlay"
+        return loadImage(url)
+    }
+
+    suspend fun loadImage(url: String?): ImageBitmap? {
+        if (url == null) return null
+        return cache[url] ?: withContext(Dispatchers.IO) {
             try {
-                val bytes = client.get("https://crafatar.com/avatars/$uuid?size=64&overlay").body<ByteArray>()
+                val bytes = client.get(url).body<ByteArray>()
                 val bitmap = loadImageBitmap(bytes.inputStream())
-                cache[uuid] = bitmap
+                cache[url] = bitmap
                 bitmap
             } catch (e: CancellationException) {
                 throw e

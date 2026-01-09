@@ -8,20 +8,22 @@
 
 package ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.MarqueeAnimationMode
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.border
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -31,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,6 +42,8 @@ import funlauncher.Account
 import funlauncher.BuildType
 import funlauncher.MinecraftBuild
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -54,7 +59,8 @@ fun HomeScreen(
     onDeleteBuildClick: (MinecraftBuild) -> Unit,
     onSettingsBuildClick: (MinecraftBuild) -> Unit,
     currentAccount: Account?,
-    onOpenAccountManager: () -> Unit
+    onOpenAccountManager: () -> Unit,
+    buildsPendingDeletion: Set<String>
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val filteredBuilds = builds.filter { it.name.contains(searchQuery, ignoreCase = true) }
@@ -110,16 +116,22 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(filteredBuilds) { build ->
-                BuildCard(
-                    build = build,
-                    isRunning = build == runningBuild,
-                    isPreparing = build.name == isLaunchingBuildId,
-                    onLaunchClick = { onLaunchClick(build) },
-                    onOpenFolderClick = { onOpenFolderClick(build) },
-                    onDeleteClick = { onDeleteBuildClick(build) },
-                    onSettingsClick = { onSettingsBuildClick(build) }
-                )
+            itemsIndexed(filteredBuilds, key = { _, build -> build.name }) { index, build ->
+                AnimatedVisibility(
+                    visible = build.name !in buildsPendingDeletion,
+                    exit = shrinkVertically(animationSpec = tween(durationMillis = 300)) + fadeOut(animationSpec = tween(durationMillis = 250))
+                ) {
+                    BuildCard(
+                        build = build,
+                        isRunning = build == runningBuild,
+                        isPreparing = build.name == isLaunchingBuildId,
+                        onLaunchClick = { onLaunchClick(build) },
+                        onOpenFolderClick = { onOpenFolderClick(build) },
+                        onDeleteClick = { onDeleteBuildClick(build) },
+                        onSettingsClick = { onSettingsBuildClick(build) },
+                        index = index
+                    )
+                }
             }
         }
     }
@@ -148,11 +160,38 @@ private fun BuildCard(
     onLaunchClick: () -> Unit,
     onOpenFolderClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    index: Int
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+
+    val animatedScale = remember { Animatable(0.8f) }
+    val animatedAlpha = remember { Animatable(0f) }
+
+    LaunchedEffect(key1 = build.name) {
+        val delay = (index * 75L).coerceAtMost(375L)
+
+        launch {
+            delay(delay)
+            animatedScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
+        }
+
+        launch {
+            delay(delay)
+            animatedAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 250)
+            )
+        }
+    }
 
     var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
 
@@ -180,6 +219,11 @@ private fun BuildCard(
 
     Card(
         modifier = Modifier
+            .graphicsLayer {
+                scaleX = animatedScale.value
+                scaleY = animatedScale.value
+                alpha = animatedAlpha.value
+            }
             .hoverable(interactionSource)
             .fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),

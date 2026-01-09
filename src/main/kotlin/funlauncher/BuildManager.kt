@@ -9,10 +9,15 @@
 package funlauncher
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
+import java.io.InputStream
 import java.nio.file.Path
 import kotlin.io.path.*
 
@@ -45,66 +50,172 @@ class BuildManager {
     private val instancesPath: Path = launcherPath.resolve("instances")
     private val versionsPath: Path = launcherPath.resolve("versions")
     private val buildsFilePath: Path = launcherPath.resolve("builds.json")
+    private val backgroundsPath: Path = launcherPath.resolve("backgrounds")
 
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
-    private var builds: MutableList<MinecraftBuild> = mutableListOf()
+    private var _builds: MutableList<MinecraftBuild> = mutableListOf()
+    private val buildsMutex = Mutex()
 
-    suspend fun loadBuilds(): List<MinecraftBuild> = withContext(Dispatchers.IO) {
+    private fun loadBuildsInternal(): MutableList<MinecraftBuild> {
         if (!buildsFilePath.exists()) {
-            builds = mutableListOf()
-            return@withContext builds
+            return mutableListOf()
         }
-        val content = buildsFilePath.readText()
-        try {
-            builds = json.decodeFromString<MutableList<MinecraftBuild>>(content)
+        return try {
+            json.decodeFromString<MutableList<MinecraftBuild>>(buildsFilePath.readText())
         } catch (e: Exception) {
             println("Ошибка чтения builds.json: ${e.message}")
             try {
-                val oldFormatBuilds = json.decodeFromString<List<OldMinecraftBuild>>(content)
+                val oldFormatBuilds = json.decodeFromString<List<OldMinecraftBuild>>(buildsFilePath.readText())
                 val newBuilds = oldFormatBuilds.map { it.toNewBuild() }.toMutableList()
-                saveBuilds(newBuilds)
+                // Сохраняем мигрированные сборки сразу
+                buildsFilePath.writeText(json.encodeToString(newBuilds))
+                newBuilds
             } catch (e2: Exception) {
                 println("Миграция не удалась: ${e2.message}")
-                builds = mutableListOf()
+                mutableListOf()
             }
         }
-        return@withContext builds
     }
 
-    private suspend fun saveBuilds(buildsToSave: List<MinecraftBuild>) = withContext(Dispatchers.IO) {
-        builds = buildsToSave.toMutableList()
-        val content = json.encodeToString(builds)
+    private fun saveBuildsInternal(buildsToSave: List<MinecraftBuild>) {
+        _builds = buildsToSave.toMutableList()
+        val content = json.encodeToString(_builds)
         buildsFilePath.writeText(content)
     }
 
-    suspend fun addBuild(name: String, version: String, type: BuildType, imagePath: String?) = withContext(Dispatchers.IO) {
-        require(name.isNotBlank()) { "Название сборки не может быть пустым" }
-        require(version.isNotBlank()) { "Версия не может быть пустой" }
+    suspend fun loadBuilds(): List<MinecraftBuild> = withContext(Dispatchers.IO) {
+        buildsMutex.withLock {
+            _builds = loadBuildsInternal()
+        }
+        return@withContext _builds.toList()
+    }
 
-        val invalidChars = setOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')
-        require(name.none { it in invalidChars }) { "Название сборки содержит запрещенные символы" }
-
-        if (builds.any { it.name.equals(name, ignoreCase = true) }) {
-            throw IllegalStateException("Сборка с именем '$name' уже существует")
+    private fun prepareDefaultBackgrounds(): List<Path> {
+        if (!backgroundsPath.exists()) {
+            backgroundsPath.createDirectories()
         }
 
-        val buildPath = getBuildPath(name)
-        val newBuild = MinecraftBuild(
-            name = name.trim(),
-            version = version,
-            type = type,
-            installPath = buildPath.toString(),
-            imagePath = imagePath,
-            javaPath = "", // Автоматический выбор по умолчанию
-            maxRamMb = null,
-            javaArgs = null,
-            envVars = null
-        )
+        val defaultBackgrounds = listOf("1.png", "2.png", "3.png")
+        val backgroundPaths = mutableListOf<Path>()
 
-        builds.add(newBuild)
-        saveBuilds(builds)
+        for (bgName in defaultBackgrounds) {
+            val destPath = backgroundsPath.resolve(bgName)
+            if (!destPath.exists()) {
+                try {
+                    val resourceStream: InputStream? = this::class.java.getResourceAsStream("/backgrounds/$bgName")
+                    if (resourceStream != null) {
+                        destPath.outputStream().use { resourceStream.copyTo(it) }
+                    } else {
+                        println("Не удалось найти ресурс: /backgrounds/$bgName")
+                    }
+                } catch (e: Exception) {
+                    println("Ошибка копирования фона $bgName: ${e.message}")
+                }
+            }
+            if (destPath.exists()) {
+                backgroundPaths.add(destPath)
+            }
+        }
+        return backgroundPaths
+    }
 
-        buildPath.createDirectories()
+    suspend fun synchronizeBuilds(): Pair<List<MinecraftBuild>, Int> = withContext(Dispatchers.IO) {
+        var newBuildsCount = 0
+        val resultingBuilds = buildsMutex.withLock {
+            val currentBuilds = loadBuildsInternal()
+
+            if (!instancesPath.exists() || !instancesPath.isDirectory()) {
+                return@withLock currentBuilds
+            }
+
+            val defaultBackgrounds = prepareDefaultBackgrounds()
+            val existingBuildNames = currentBuilds.map { it.name }.toSet()
+            val directoryNames = instancesPath.listDirectoryEntries()
+                .filter { it.isDirectory() }
+                .map { it.fileName.toString() }
+
+            var changed = false
+            for (dirName in directoryNames) {
+                if (dirName !in existingBuildNames) {
+                    val versionInfo = detectVersionFromInstance(instancesPath.resolve(dirName))
+                    val randomBackground = if (defaultBackgrounds.isNotEmpty()) defaultBackgrounds.random().toString() else null
+                    val newBuild = MinecraftBuild(
+                        name = dirName,
+                        version = versionInfo.first,
+                        type = versionInfo.second,
+                        installPath = instancesPath.resolve(dirName).toString(),
+                        imagePath = randomBackground
+                    )
+                    currentBuilds.add(newBuild)
+                    changed = true
+                    newBuildsCount++
+                    println("Найдена и добавлена новая сборка: $dirName (Версия: ${versionInfo.first}, Тип: ${versionInfo.second})")
+                }
+            }
+
+            if (changed) {
+                saveBuildsInternal(currentBuilds)
+            }
+            _builds = currentBuilds
+            _builds
+        }
+        return@withContext resultingBuilds.toList() to newBuildsCount
+    }
+
+    private fun detectVersionFromInstance(instancePath: Path): Pair<String, BuildType> {
+        val versionJsonFile = instancePath.resolve(".minecraft").resolve("version.json")
+        if (versionJsonFile.exists() && versionJsonFile.isRegularFile()) {
+            try {
+                val content = versionJsonFile.readText()
+                val jsonElement = Json.parseToJsonElement(content)
+                val versionId = jsonElement.jsonObject["id"]?.jsonPrimitive?.content
+                if (versionId != null) {
+                    val buildType = when {
+                        versionId.contains("fabric", ignoreCase = true) -> BuildType.FABRIC
+                        versionId.contains("forge", ignoreCase = true) -> BuildType.FORGE
+                        else -> BuildType.VANILLA
+                    }
+                    return versionId to buildType
+                }
+            } catch (e: Exception) {
+                println("Ошибка чтения version.json для ${instancePath.fileName}: ${e.message}")
+            }
+        }
+        return "Unknown" to BuildType.VANILLA
+    }
+
+    suspend fun addBuild(name: String, version: String, type: BuildType, imagePath: String?) = withContext(Dispatchers.IO) {
+        buildsMutex.withLock {
+            val currentBuilds = loadBuildsInternal()
+
+            require(name.isNotBlank()) { "Название сборки не может быть пустым" }
+            require(version.isNotBlank()) { "Версия не может быть пустой" }
+
+            val invalidChars = setOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')
+            require(name.none { it in invalidChars }) { "Название сборки содержит запрещенные символы" }
+
+            if (currentBuilds.any { it.name.equals(name, ignoreCase = true) }) {
+                throw IllegalStateException("Сборка с именем '$name' уже существует")
+            }
+
+            val buildPath = getBuildPath(name)
+            val newBuild = MinecraftBuild(
+                name = name.trim(),
+                version = version,
+                type = type,
+                installPath = buildPath.toString(),
+                imagePath = imagePath,
+                javaPath = "", // Автоматический выбор по умолчанию
+                maxRamMb = null,
+                javaArgs = null,
+                envVars = null
+            )
+
+            currentBuilds.add(newBuild)
+            saveBuildsInternal(currentBuilds)
+
+            buildPath.createDirectories()
+        }
     }
 
     suspend fun updateBuildSettings(
@@ -118,83 +229,91 @@ class BuildManager {
         newJavaArgs: String?,
         newEnvVars: String?
     ) = withContext(Dispatchers.IO) {
-        val buildIndex = builds.indexOfFirst { it.name.equals(oldName, ignoreCase = true) }
-        if (buildIndex == -1) return@withContext
+        buildsMutex.withLock {
+            val currentBuilds = loadBuildsInternal()
+            val buildIndex = currentBuilds.indexOfFirst { it.name.equals(oldName, ignoreCase = true) }
+            if (buildIndex == -1) return@withLock
 
-        val oldBuild = builds[buildIndex]
+            val oldBuild = currentBuilds[buildIndex]
 
-        if (oldName != newName && builds.any { it.name.equals(newName, ignoreCase = true) }) {
-            throw IllegalStateException("Сборка с именем '$newName' уже существует.")
-        }
-
-        val newInstallPath = if (oldName != newName) {
-            val oldPath = Path(oldBuild.installPath)
-            val newPath = instancesPath.resolve(newName.trim())
-            if (newPath.exists()) {
-                throw IllegalStateException("Папка для сборки '$newName' уже существует.")
+            if (oldName != newName && currentBuilds.any { it.name.equals(newName, ignoreCase = true) }) {
+                throw IllegalStateException("Сборка с именем '$newName' уже существует.")
             }
-            oldPath.moveTo(newPath, true)
-            newPath.toString()
-        } else {
-            oldBuild.installPath
-        }
 
-        if (oldBuild.version != newVersion || oldBuild.type != newType) {
-            val versionDir = versionsPath.resolve(oldBuild.version)
-            if (versionDir.exists()) {
-                println("Version changed. Deleting old version directory: $versionDir")
-                versionDir.deleteRecursively()
+            val newInstallPath = if (oldName != newName) {
+                val oldPath = Path(oldBuild.installPath)
+                val newPath = instancesPath.resolve(newName.trim())
+                if (newPath.exists()) {
+                    throw IllegalStateException("Папка для сборки '$newName' уже существует.")
+                }
+                oldPath.moveTo(newPath, true)
+                newPath.toString()
+            } else {
+                oldBuild.installPath
             }
-            val vanillaPart = oldBuild.version.split("-fabric-").firstOrNull()
-            if (vanillaPart != null) {
-                val vanillaDir = versionsPath.resolve(vanillaPart)
-                if (vanillaDir.exists()) {
-                     println("Deleting old vanilla version directory: $vanillaDir")
-                    vanillaDir.deleteRecursively()
+
+            if (oldBuild.version != newVersion || oldBuild.type != newType) {
+                val versionDir = versionsPath.resolve(oldBuild.version)
+                if (versionDir.exists()) {
+                    println("Version changed. Deleting old version directory: $versionDir")
+                    versionDir.deleteRecursively()
+                }
+                val vanillaPart = oldBuild.version.split("-fabric-").firstOrNull()
+                if (vanillaPart != null) {
+                    val vanillaDir = versionsPath.resolve(vanillaPart)
+                    if (vanillaDir.exists()) {
+                        println("Deleting old vanilla version directory: $vanillaDir")
+                        vanillaDir.deleteRecursively()
+                    }
                 }
             }
-        }
 
-        builds[buildIndex] = oldBuild.copy(
-            name = newName.trim(),
-            version = newVersion,
-            type = newType,
-            installPath = newInstallPath,
-            imagePath = newImagePath,
-            javaPath = newJavaPath,
-            maxRamMb = newMaxRam,
-            javaArgs = newJavaArgs,
-            envVars = newEnvVars
-        )
-        saveBuilds(builds)
+            currentBuilds[buildIndex] = oldBuild.copy(
+                name = newName.trim(),
+                version = newVersion,
+                type = newType,
+                installPath = newInstallPath,
+                imagePath = newImagePath,
+                javaPath = newJavaPath,
+                maxRamMb = newMaxRam,
+                javaArgs = newJavaArgs,
+                envVars = newEnvVars
+            )
+            saveBuildsInternal(currentBuilds)
+        }
     }
 
     suspend fun updateBuildModloaderVersion(buildName: String, modloaderVersion: String) = withContext(Dispatchers.IO) {
-        val buildIndex = builds.indexOfFirst { it.name.equals(buildName, ignoreCase = true) }
-        if (buildIndex != -1) {
-            val oldBuild = builds[buildIndex]
-            if (oldBuild.modloaderVersion != modloaderVersion) {
-                builds[buildIndex] = oldBuild.copy(modloaderVersion = modloaderVersion)
-                saveBuilds(builds)
+        buildsMutex.withLock {
+            val currentBuilds = loadBuildsInternal()
+            val buildIndex = currentBuilds.indexOfFirst { it.name.equals(buildName, ignoreCase = true) }
+            if (buildIndex != -1) {
+                val oldBuild = currentBuilds[buildIndex]
+                if (oldBuild.modloaderVersion != modloaderVersion) {
+                    currentBuilds[buildIndex] = oldBuild.copy(modloaderVersion = modloaderVersion)
+                    saveBuildsInternal(currentBuilds)
+                }
             }
         }
     }
 
     suspend fun deleteBuild(name: String) = withContext(Dispatchers.IO) {
-        val buildToRemove = builds.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: return@withContext
+        val buildToRemove = buildsMutex.withLock {
+            val currentBuilds = loadBuildsInternal()
+            val build = currentBuilds.firstOrNull { it.name.equals(name, ignoreCase = true) }
+            if (build != null) {
+                currentBuilds.remove(build)
+                saveBuildsInternal(currentBuilds)
+            }
+            build
+        } ?: return@withContext
 
-        // 1. Удаляем из списка и сохраняем JSON
-        builds.remove(buildToRemove)
-        saveBuilds(builds)
-
-        // 2. Удаляем папку инстанса (saves, mods, etc.)
         val instancePath = Path(buildToRemove.installPath)
         if (instancePath.exists()) {
             instancePath.deleteRecursively()
             println("Deleted instance directory: $instancePath")
         }
 
-        // 3. Удаляем папку с версией из global versions
         val versionIdToDelete = buildToRemove.modloaderVersion ?: buildToRemove.version
         val versionDir = versionsPath.resolve(versionIdToDelete)
         if (versionDir.exists()) {
@@ -202,7 +321,6 @@ class BuildManager {
             println("Deleted version directory: $versionDir")
         }
 
-        // 4. Удаляем обложку, если она есть
         buildToRemove.imagePath?.let {
             val imageFile = File(it)
             if (imageFile.exists() && imageFile.isFile) {
@@ -211,7 +329,6 @@ class BuildManager {
             }
         }
 
-        // 5. Очищаем кэш загрузчика для этой версии (на случай, если он остался)
         if (buildToRemove.type == BuildType.FABRIC) {
             val gameVersion = buildToRemove.version.split("-fabric-").firstOrNull()
             if (gameVersion != null) {
@@ -223,7 +340,6 @@ class BuildManager {
             }
         }
     }
-
 
     fun getBuildPath(buildName: String): Path {
         return instancesPath.resolve(buildName.trim())

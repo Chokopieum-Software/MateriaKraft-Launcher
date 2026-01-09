@@ -39,6 +39,32 @@ object PathManager {
     }
 
     /**
+     * Возвращает путь к глобальной папке с ассетами.
+     */
+    fun getGlobalAssetsDir(): Path = getAppDataDirectory().resolve("assets")
+
+    /**
+     * Возвращает путь к глобальной папке с версиями.
+     */
+    fun getGlobalVersionsDir(): Path = getAppDataDirectory().resolve("versions")
+
+    /**
+     * Возвращает путь к глобальной папке с библиотеками.
+     */
+    fun getGlobalLibrariesDir(): Path = getAppDataDirectory().resolve("libraries")
+    
+    /**
+     * Возвращает путь к папке для кэширования манифестов версий.
+     */
+    fun getCacheDir(): Path = getAppDataDirectory().resolve(".cache")
+
+    /**
+     * Возвращает путь к папке с нативными библиотеками для конкретной сборки.
+     */
+    fun getNativesDir(build: MinecraftBuild): Path = Paths.get(build.installPath).resolve("natives")
+
+
+    /**
      * Проверяет, нужно ли запускать мастер первоначальной настройки.
      * Это определяется по наличию корневой папки лаунчера.
      */
@@ -50,11 +76,11 @@ object PathManager {
      * Создает все необходимые директории для работы лаунчера.
      */
     fun createRequiredDirectories() {
-        val appData = getAppDataDirectory()
-        Files.createDirectories(appData)
-        Files.createDirectories(appData.resolve("versions"))
-        Files.createDirectories(appData.resolve("jdks"))
-        Files.createDirectories(appData.resolve("accounts"))
-        // Можно добавить другие необходимые папки здесь
+        Files.createDirectories(getAppDataDirectory())
+        Files.createDirectories(getGlobalVersionsDir())
+        Files.createDirectories(getGlobalLibrariesDir())
+        Files.createDirectories(getGlobalAssetsDir())
+        Files.createDirectories(getCacheDir())
+        Files.createDirectories(getAppDataDirectory().resolve("jdks"))
     }
 }

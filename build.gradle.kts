@@ -1,13 +1,14 @@
 @file:Suppress("DEPRECATION")
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.tasks.Copy
 import org.gradle.jvm.tasks.Jar
 import java.util.Properties
 
 plugins {
     kotlin("jvm") version "2.3.0"
-    kotlin("plugin.compose") version "2.3.0"
     kotlin("plugin.serialization") version "2.3.0"
+    kotlin("plugin.compose") version "2.3.0"
     // Плагин Compose Multiplatform
     id("org.jetbrains.compose") version "1.9.3"
 }
@@ -16,15 +17,6 @@ val packageVersion = "1.0.60000"
 
 group = "org.chokopieum.software"
 version = packageVersion
-
-val buildNumber = project.rootProject.file("build.properties").let {
-    val props = Properties()
-    it.inputStream().use { fis -> props.load(fis) }
-    val currentBuild = props.getProperty("buildNumber").toInt()
-    props.setProperty("buildNumber", (currentBuild + 1).toString())
-    it.outputStream().use { fos -> props.store(fos, null) }
-    currentBuild
-}
 
 repositories {
     mavenCentral()
@@ -40,7 +32,7 @@ dependencies {
     // === Асинхронность (Coroutines) ===
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
-    implementation("com.microsoft.azure:msal4j:1.14.0")
+    implementation("com.microsoft.azure:msal4j:1.23.1")
     implementation("com.github.javakeyring:java-keyring:1.0.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
@@ -56,6 +48,7 @@ dependencies {
     implementation("io.ktor:ktor-client-cio:2.3.13") // Движок для Ktor
     implementation("io.ktor:ktor-client-content-negotiation:2.3.13")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.13")
+    implementation("io.ktor:ktor-client-logging:2.3.13")
 
     // === Работа с архивами ===
     implementation("org.apache.commons:commons-compress:1.26.2")
@@ -69,6 +62,13 @@ kotlin {
 compose.desktop {
     application {
         mainClass = "MainKt"
+
+        jvmArgs += listOf(
+            "-XX:+UseZGC",
+            "-Xms512m",
+            "-Xmx512m",
+            "-XX:+DisableExplicitGC"
+        )
 
         nativeDistributions {
             packageName = "materia-launcher"
@@ -98,21 +98,35 @@ afterEvaluate {
     }
 }
 
-tasks.processResources {
-    val props = Properties()
-    props.setProperty("version", packageVersion)
-    props.setProperty("buildNumber", buildNumber.toString())
-    // Определяем источник сборки
-    val buildSource = if (System.getenv("GITHUB_ACTIONS") == "true") "GitHub" else "Local"
-    props.setProperty("buildSource", buildSource)
+tasks.named<Copy>("processResources") {
+    doLast {
+        // Инкрементируем номер сборки
+        val buildPropertiesFile = project.rootProject.file("build.properties")
+        val buildProps = Properties().apply {
+            buildPropertiesFile.inputStream().use { load(it) }
+        }
+        val currentBuild = buildProps.getProperty("buildNumber").toInt()
+        val newBuildNumber = currentBuild + 1
+        buildProps.setProperty("buildNumber", newBuildNumber.toString())
+        buildPropertiesFile.outputStream().use { buildProps.store(it, null) }
 
-    // Извлекаем версию Gradle
-    val wrapperProps = Properties()
-    file("gradle/wrapper/gradle-wrapper.properties").inputStream().use { wrapperProps.load(it) }
-    val gradleVersion = wrapperProps.getProperty("distributionUrl").substringAfterLast("gradle-").substringBefore("-bin")
-    props.setProperty("gradleVersion", gradleVersion)
+        // Генерируем app.properties
+        val props = Properties()
+        props.setProperty("version", packageVersion)
+        props.setProperty("buildNumber", newBuildNumber.toString())
+        // Определяем источник сборки
+        val buildSource = if (System.getenv("GITHUB_ACTIONS") == "true") "GitHub" else "Local"
+        props.setProperty("buildSource", buildSource)
 
-    file("src/main/resources/app.properties").writer().use {
-        props.store(it, null)
+        // Извлекаем версию Gradle
+        val wrapperProps = Properties()
+        project.file("gradle/wrapper/gradle-wrapper.properties").inputStream().use { wrapperProps.load(it) }
+        val gradleVersion = wrapperProps.getProperty("distributionUrl").substringAfterLast("gradle-").substringBefore("-bin")
+        props.setProperty("gradleVersion", gradleVersion)
+
+        // Записываем файл в выходную директорию задачи
+        file("$destinationDir/app.properties").writer().use {
+            props.store(it, null)
+        }
     }
 }

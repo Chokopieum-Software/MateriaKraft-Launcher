@@ -539,12 +539,12 @@ private fun MainSettingsTab(
         }
     }
 
-    fun refreshAllVersions(force: Boolean = false) {
+    fun refreshAllVersions() {
         scope.launch {
             isLoadingMcVersions = true
-            val mc = async { versionManager.getMinecraftVersions(force) }
-            val fabric = async { versionManager.getFabricGameVersions(force) }
-            val forge = async { versionManager.getForgeVersions(force) }
+            val mc = async { versionManager.getMinecraftVersions() }
+            val fabric = async { versionManager.getFabricGameVersions() }
+            val forge = async { versionManager.getForgeVersions() }
             allMcVersions = mc.await()
             fabricGameVersions = fabric.await()
             forgeVersions = forge.await()
@@ -552,13 +552,13 @@ private fun MainSettingsTab(
         }
     }
 
-    fun refreshLoaderVersions(force: Boolean = false) {
+    fun refreshLoaderVersions() {
         if (selectedMcVersion.isBlank()) return
         scope.launch {
             isLoadingLoaderVersions = true
             when (selectedBuildType) {
                 BuildType.FABRIC -> {
-                    fabricLoaderVersions = versionManager.getFabricLoaderVersions(selectedMcVersion, force)
+                    fabricLoaderVersions = versionManager.getFabricLoaderVersions(selectedMcVersion)
                     if (selectedLoaderVersion.isBlank() || fabricLoaderVersions.none { it.version == selectedLoaderVersion }) {
                         onSelectedLoaderVersionChange(fabricLoaderVersions.firstOrNull { it.stable }?.version ?: fabricLoaderVersions.firstOrNull()?.version ?: "")
                     }
@@ -619,8 +619,8 @@ private fun MainSettingsTab(
             onBuildTypeSelected = onSelectedBuildTypeChange,
             isLoadingMc = isLoadingMcVersions,
             isLoadingLoader = isLoadingLoaderVersions,
-            onRefreshMc = { refreshAllVersions(true) },
-            onRefreshLoader = { refreshLoaderVersions(true) }
+            onRefreshMc = { refreshAllVersions() },
+            onRefreshLoader = { refreshLoaderVersions() }
         )
         JavaSelectionGroup(javaInstallations, globalSettings.javaPath, selectedJavaPath, onSelectedJavaPathChange)
         SettingGroup("Выделение ОЗУ", useGlobalRam, { onUseGlobalRamChange(it); if (it) onMaxRamChange(globalSettings.maxRamMb) }) {

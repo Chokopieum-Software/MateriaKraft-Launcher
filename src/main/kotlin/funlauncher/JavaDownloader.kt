@@ -16,7 +16,9 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -57,7 +59,7 @@ class JavaDownloader {
     private fun log(message: String) = println("[JavaDownloader] $message")
 
     fun downloadAndUnpack(version: Int, onComplete: (Result<JavaInfo>) -> Unit) {
-        ApplicationScope.launch {
+        ApplicationScope.scope.launch {
             val task = DownloadManager.startTask("Java $version")
             try {
                 if (!jdksDir.exists()) jdksDir.createDirectories()
@@ -82,12 +84,18 @@ class JavaDownloader {
                     if (tempUnpackDir.exists()) tempUnpackDir.toFile().deleteRecursively()
                     tempUnpackDir.createDirectories()
 
-                    unpack(archivePath, tempUnpackDir)
+                    withContext(Dispatchers.IO) {
+                        unpack(archivePath, tempUnpackDir)
+                    }
                     log("Перемещение из временной папки в ${destDir.absolutePathString()}")
-                    moveFromNestedDirectory(tempUnpackDir, destDir)
+                    withContext(Dispatchers.IO) {
+                        moveFromNestedDirectory(tempUnpackDir, destDir)
+                    }
 
                     DownloadManager.updateTask(task.id, 0.99f, "Поиск java...")
-                    val javaPath = findJavaIn(destDir) ?: throw Exception("Не удалось найти java в распакованной папке: $destDir")
+                    val javaPath = withContext(Dispatchers.IO) {
+                        findJavaIn(destDir)
+                    } ?: throw Exception("Не удалось найти java в распакованной папке: $destDir")
                     log("Найден исполняемый файл: ${javaPath.absolutePathString()}")
 
                     val javaInfo = JavaManager().getJavaInfo(javaPath.toString(), isManaged = true)
@@ -97,8 +105,10 @@ class JavaDownloader {
                         throw Exception("Не удалось получить информацию о Java после установки.")
                     }
                 } finally {
-                    archivePath.deleteIfExists()
-                    tempUnpackDir.toFile().deleteRecursively()
+                    withContext(Dispatchers.IO) {
+                        archivePath.deleteIfExists()
+                        tempUnpackDir.toFile().deleteRecursively()
+                    }
                     log("Очистка временных файлов завершена.")
                 }
             } catch (e: Exception) {

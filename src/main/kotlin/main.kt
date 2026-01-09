@@ -37,7 +37,7 @@ import java.io.File
 import java.lang.management.ManagementFactory
 import java.net.URI
 
-enum class AppTab { Home, Mods, Settings }
+enum class AppTab { Home, Modifications, Settings }
 
 @Composable
 fun AnimatedAppTheme(
@@ -81,9 +81,11 @@ fun App(
     javaDownloader: JavaDownloader
 ) {
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var currentTab by remember { mutableStateOf(AppTab.Home) }
     val buildList = remember { mutableStateListOf(*appState.builds.toTypedArray()) }
+    val buildsPendingDeletion = remember { mutableStateSetOf<String>() }
     var accounts by remember { mutableStateOf(appState.accounts) }
     var currentAccount by remember { mutableStateOf(accounts.firstOrNull()) }
 
@@ -103,6 +105,18 @@ fun App(
 
     var isLaunchingBuildId by remember { mutableStateOf<String?>(null) }
     var showCheckmark by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val (synchronizedBuilds, newCount) = buildManager.synchronizeBuilds()
+        if (synchronizedBuilds.size != buildList.size || synchronizedBuilds != buildList) {
+            buildList.clear()
+            buildList.addAll(synchronizedBuilds)
+        }
+        if (newCount > 0) {
+            val message = "Обнаружено $newCount новых сборок. Возможно, потребуется указать версию вручную."
+            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long)
+        }
+    }
 
     fun refreshBuilds() {
         scope.launch {
@@ -229,75 +243,119 @@ fun App(
     }
 
     AnimatedAppTheme(appState.settings.theme) {
-        val contentPaddingStart by animateDpAsState(if (appState.settings.navPanelPosition == NavPanelPosition.Left) 96.dp else 0.dp)
-        val contentPaddingBottom by animateDpAsState(if (appState.settings.navPanelPosition == NavPanelPosition.Bottom) 80.dp else 0.dp)
+        Scaffold(
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            containerColor = MaterialTheme.colorScheme.background
+        ) {
+            val contentPaddingStart by animateDpAsState(if (appState.settings.navPanelPosition == NavPanelPosition.Left && currentTab != AppTab.Modifications) 96.dp else 0.dp)
+            val contentPaddingBottom by animateDpAsState(if (appState.settings.navPanelPosition == NavPanelPosition.Bottom && currentTab != AppTab.Modifications) 80.dp else 0.dp)
 
-        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            Box(modifier = Modifier.fillMaxSize().padding(start = contentPaddingStart, bottom = contentPaddingBottom)) {
-                Crossfade(targetState = currentTab, animationSpec = tween(300)) { tab ->
-                    when (tab) {
-                        AppTab.Home -> HomeScreen(
-                            builds = buildList,
-                            runningBuild = if (isGameRunning) selectedBuild else null,
-                            onLaunchClick = onLaunchClick,
-                            onOpenFolderClick = { openFolder(it.installPath) },
-                            onAddBuildClick = { showAddBuildDialog = true },
-                            isLaunchingBuildId = isLaunchingBuildId,
-                            onDeleteBuildClick = onDeleteBuildClick,
-                            onSettingsBuildClick = onSettingsBuildClick,
-                            currentAccount = currentAccount,
-                            onOpenAccountManager = { showAccountScreen = true }
-                        )
-                        AppTab.Mods -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "Раздел 'Моды' в разработке",
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = MaterialTheme.colorScheme.onSurface
+            Box(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize().padding(start = contentPaddingStart, bottom = contentPaddingBottom)) {
+                    Crossfade(targetState = currentTab, animationSpec = tween(300)) { tab ->
+                        when (tab) {
+                            AppTab.Home -> HomeScreen(
+                                builds = buildList,
+                                runningBuild = if (isGameRunning) selectedBuild else null,
+                                onLaunchClick = onLaunchClick,
+                                onOpenFolderClick = { openFolder(it.installPath) },
+                                onAddBuildClick = { showAddBuildDialog = true },
+                                isLaunchingBuildId = isLaunchingBuildId,
+                                onDeleteBuildClick = onDeleteBuildClick,
+                                onSettingsBuildClick = onSettingsBuildClick,
+                                currentAccount = currentAccount,
+                                onOpenAccountManager = { showAccountScreen = true },
+                                buildsPendingDeletion = buildsPendingDeletion
+                            )
+                            AppTab.Modifications -> ModificationsScreen(
+                                onBack = { currentTab = AppTab.Home },
+                                navPanelPosition = appState.settings.navPanelPosition,
+                                buildManager = buildManager,
+                                onModpackInstalled = {
+                                    refreshBuilds()
+                                    currentTab = AppTab.Home
+                                }
+                            )
+                            AppTab.Settings -> SettingsTab(
+                                currentSettings = appState.settings,
+                                onSave = onSettingsChange,
+                                onOpenJavaManager = { showJavaManagerWindow = true }
                             )
                         }
-                        AppTab.Settings -> SettingsTab(
-                            currentSettings = appState.settings,
-                            onSave = onSettingsChange,
-                            onOpenJavaManager = { showJavaManagerWindow = true }
-                        )
                     }
                 }
-            }
 
-            AnimatedVisibility(
-                visible = appState.settings.navPanelPosition == NavPanelPosition.Left,
-                enter = slideInHorizontally(initialOffsetX = { -it }),
-                exit = slideOutHorizontally(targetOffsetX = { -it }),
-                modifier = Modifier.align(Alignment.CenterStart)
-            ) {
-                NavigationRail(
-                    modifier = Modifier
-                        .padding(start = 16.dp)
-                        .height(300.dp) // Adjusted height
-                        .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp))
-                        .clip(RoundedCornerShape(16.dp)),
-                    containerColor = MaterialTheme.colorScheme.surface
+                AnimatedVisibility(
+                    visible = appState.settings.navPanelPosition == NavPanelPosition.Left && currentTab != AppTab.Modifications,
+                    enter = slideInHorizontally(initialOffsetX = { -it }),
+                    exit = slideOutHorizontally(targetOffsetX = { -it }),
+                    modifier = Modifier.align(Alignment.CenterStart)
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxHeight().padding(vertical = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center // Centered items
+                    NavigationRail(
+                        modifier = Modifier
+                            .padding(start = 16.dp)
+                            .height(300.dp) // Adjusted height
+                            .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(16.dp)),
+                        containerColor = MaterialTheme.colorScheme.surface
                     ) {
-                        NavigationRailItem(
+                        Column(
+                            modifier = Modifier.fillMaxHeight().padding(vertical = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center // Centered items
+                        ) {
+                            NavigationRailItem(
+                                selected = currentTab == AppTab.Home,
+                                onClick = { currentTab = AppTab.Home },
+                                icon = { Icon(Icons.Default.Home, contentDescription = "Главная") },
+                                label = { Text("Главная") }
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            NavigationRailItem(
+                                selected = currentTab == AppTab.Modifications,
+                                onClick = { currentTab = AppTab.Modifications },
+                                icon = { Icon(Icons.Default.Build, contentDescription = "Модификации") },
+                                label = { Text("Модификации") }
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            NavigationRailItem(
+                                selected = currentTab == AppTab.Settings,
+                                onClick = { currentTab = AppTab.Settings },
+                                icon = { Icon(Icons.Default.Settings, contentDescription = "Настройки") },
+                                label = { Text("Настройки") }
+                            )
+                        }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = appState.settings.navPanelPosition == NavPanelPosition.Bottom && currentTab != AppTab.Modifications,
+                    enter = slideInVertically(initialOffsetY = { it }),
+                    exit = slideOutVertically(targetOffsetY = { it }),
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                ) {
+                    NavigationBar(
+                        modifier = Modifier
+                            .padding(bottom = 16.dp)
+                            .width(300.dp)
+                            .height(64.dp)
+                            .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(16.dp)),
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ) {
+                        NavigationBarItem(
                             selected = currentTab == AppTab.Home,
                             onClick = { currentTab = AppTab.Home },
                             icon = { Icon(Icons.Default.Home, contentDescription = "Главная") },
                             label = { Text("Главная") }
                         )
-                        Spacer(Modifier.height(16.dp))
-                        NavigationRailItem(
-                            selected = currentTab == AppTab.Mods,
-                            onClick = { currentTab = AppTab.Mods },
-                            icon = { Icon(Icons.Default.Star, contentDescription = "Моды") },
-                            label = { Text("Моды") }
+                        NavigationBarItem(
+                            selected = currentTab == AppTab.Modifications,
+                            onClick = { currentTab = AppTab.Modifications },
+                            icon = { Icon(Icons.Default.Build, contentDescription = "Модификации") },
+                            label = { Text("Модификации") }
                         )
-                        Spacer(Modifier.height(16.dp))
-                        NavigationRailItem(
+                        NavigationBarItem(
                             selected = currentTab == AppTab.Settings,
                             onClick = { currentTab = AppTab.Settings },
                             icon = { Icon(Icons.Default.Settings, contentDescription = "Настройки") },
@@ -305,71 +363,35 @@ fun App(
                         )
                     }
                 }
-            }
 
-            AnimatedVisibility(
-                visible = appState.settings.navPanelPosition == NavPanelPosition.Bottom,
-                enter = slideInVertically(initialOffsetY = { it }),
-                exit = slideOutVertically(targetOffsetY = { it }),
-                modifier = Modifier.align(Alignment.BottomCenter)
-            ) {
-                NavigationBar(
-                    modifier = Modifier
-                        .padding(bottom = 16.dp)
-                        .width(300.dp)
-                        .height(64.dp)
-                        .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp))
-                        .clip(RoundedCornerShape(16.dp)),
-                    containerColor = MaterialTheme.colorScheme.surface
+                // --- Floating Downloads Button ---
+                val hasActiveDownloads = DownloadManager.tasks.isNotEmpty()
+                AnimatedVisibility(
+                    visible = hasActiveDownloads || showCheckmark,
+                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)
                 ) {
-                    NavigationBarItem(
-                        selected = currentTab == AppTab.Home,
-                        onClick = { currentTab = AppTab.Home },
-                        icon = { Icon(Icons.Default.Home, contentDescription = "Главная") },
-                        label = { Text("Главная") }
-                    )
-                    NavigationBarItem(
-                        selected = currentTab == AppTab.Mods,
-                        onClick = { currentTab = AppTab.Mods },
-                        icon = { Icon(Icons.Default.Star, contentDescription = "Моды") },
-                        label = { Text("Моды") }
-                    )
-                    NavigationBarItem(
-                        selected = currentTab == AppTab.Settings,
-                        onClick = { currentTab = AppTab.Settings },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Настройки") },
-                        label = { Text("Настройки") }
-                    )
-                }
-            }
-
-            // --- Floating Downloads Button ---
-            val hasActiveDownloads = DownloadManager.tasks.isNotEmpty()
-            AnimatedVisibility(
-                visible = hasActiveDownloads || showCheckmark,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-                modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)
-            ) {
-                Box {
-                    FloatingActionButton(
-                        onClick = { showDownloadsPopup = !showDownloadsPopup },
-                        shape = CircleShape,
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        when {
-                            showCheckmark -> Icon(Icons.Default.Check, contentDescription = "Загрузка завершена")
-                            hasActiveDownloads -> BeautifulCircularProgressIndicator(
-                                size = 24.dp,
-                                strokeWidth = 3.dp,
-                                primaryColor = MaterialTheme.colorScheme.primary,
-                                secondaryColor = MaterialTheme.colorScheme.tertiary
-                            )
-                            else -> Icon(Icons.Default.Download, contentDescription = "Загрузки") // Fallback
+                    Box {
+                        FloatingActionButton(
+                            onClick = { showDownloadsPopup = !showDownloadsPopup },
+                            shape = CircleShape,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            when {
+                                showCheckmark -> Icon(Icons.Default.Check, contentDescription = "Загрузка завершена")
+                                hasActiveDownloads -> BeautifulCircularProgressIndicator(
+                                    size = 24.dp,
+                                    strokeWidth = 3.dp,
+                                    primaryColor = MaterialTheme.colorScheme.primary,
+                                    secondaryColor = MaterialTheme.colorScheme.tertiary
+                                )
+                                else -> Icon(Icons.Default.Download, contentDescription = "Загрузки") // Fallback
+                            }
                         }
-                    }
-                    if (showDownloadsPopup) {
-                        DownloadsPopup(onDismissRequest = { showDownloadsPopup = false })
+                        if (showDownloadsPopup) {
+                            DownloadsPopup(onDismissRequest = { showDownloadsPopup = false })
+                        }
                     }
                 }
             }
@@ -478,9 +500,12 @@ fun App(
                     Button(
                         onClick = {
                             scope.launch {
+                                buildsPendingDeletion.add(build.name)
+                                buildToDelete = null
+                                delay(400) // Animation duration
                                 buildManager.deleteBuild(build.name)
                                 buildList.removeIf { it.name == build.name }
-                                buildToDelete = null
+                                buildsPendingDeletion.remove(build.name)
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
@@ -562,7 +587,7 @@ data class AppState(
 
 fun main() {
     // Принудительно включаем Vulkan для лучшей производительности анимаций
-    System.setProperty("skiko.renderApi", "VULKAN")
+    // System.setProperty("skiko.renderApi", "VULKAN")
 
     application {
         var currentScreen by remember { mutableStateOf<Screen>(Screen.Splash) }
@@ -577,24 +602,34 @@ fun main() {
         val javaManager by lazy { JavaManager() }
         val javaDownloader by lazy { JavaDownloader() }
 
+        LaunchedEffect(Unit) {
+            withContext(Dispatchers.IO) {
+                CacheManager.updateAllCaches()
+            }
+        }
+
         LaunchedEffect(currentScreen) {
             if (currentScreen is Screen.Splash) {
                 isContentReady = false // Сбрасываем готовность при возврате на сплеш
-                if (PathManager.isFirstRunRequired()) {
-                    currentScreen = Screen.FirstRunWizard
-                } else {
-                    coroutineScope {
-                        val settingsJob = async(Dispatchers.IO) { settingsManager.loadSettings() }
-                        val buildsJob = async(Dispatchers.IO) { buildManager.loadBuilds() }
-                        val accountsJob = async(Dispatchers.IO) { accountManager.loadAccounts() }
+                scope.launch(Dispatchers.IO) {
+                    if (PathManager.isFirstRunRequired()) {
+                        withContext(Dispatchers.Main) {
+                            currentScreen = Screen.FirstRunWizard
+                        }
+                    } else {
+                        val settingsJob = async { settingsManager.loadSettings() }
+                        val buildsJob = async { buildManager.loadBuilds() }
+                        val accountsJob = async { accountManager.loadAccounts() }
 
                         val loadedState = AppState(
                             settings = settingsJob.await(),
                             builds = buildsJob.await(),
                             accounts = accountsJob.await()
                         )
-                        appState = loadedState
-                        currentScreen = Screen.MainApp(loadedState)
+                        withContext(Dispatchers.Main) {
+                            appState = loadedState
+                            currentScreen = Screen.MainApp(loadedState)
+                        }
                     }
                 }
             }

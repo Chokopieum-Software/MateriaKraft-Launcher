@@ -1,11 +1,3 @@
-/*
- * Copyright 2025 Chokopieum Software
- *
- * НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.
- * Распространяется по лицензии MIT.
- * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
- */
-
 package funlauncher
 
 import kotlinx.coroutines.CoroutineScope
@@ -13,7 +5,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
 /**
- * Глобальная CoroutineScope для долгоживущих задач приложения, которые не должны
- * отменяться при закрытии компонентов пользовательского интерфейса.
+ * A global CoroutineScope that lives as long as the application.
+ * Use this for long-running background tasks that should not be cancelled
+ * when a Composable leaves the composition.
  */
-val ApplicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+object ApplicationScope {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+}
