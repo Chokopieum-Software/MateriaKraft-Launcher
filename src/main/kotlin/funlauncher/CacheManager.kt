@@ -96,5 +96,5 @@ class CacheManager(pathManager: PathManager) {
     private data class VersionManifest(val versions: List<VersionEntry>)
 
     @Serializable
-    private data class VersionEntry(val id: String, val type: String)
+    private data class VersionEntry(val id: String, val type: String, val releaseTime: String)
 }
