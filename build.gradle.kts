@@ -110,22 +110,31 @@ tasks.withType<Test> {
 
 tasks.named<Copy>("processResources") {
     doLast {
-        // Инкрементируем номер сборки
+        // Определяем источник сборки
+        val buildSource = when {
+            System.getenv("BUILD_SOURCE") == "AUR" -> "AUR"
+            System.getenv("GITHUB_ACTIONS") == "true" -> "GitHub"
+            else -> "Local"
+        }
+
         val buildPropertiesFile = project.rootProject.file("build.properties")
         val buildProps = Properties().apply {
             buildPropertiesFile.inputStream().use { load(it) }
         }
         val currentBuild = buildProps.getProperty("buildNumber").toInt()
-        val newBuildNumber = currentBuild + 1
-        buildProps.setProperty("buildNumber", newBuildNumber.toString())
-        buildPropertiesFile.outputStream().use { buildProps.store(it, null) }
+        var finalBuildNumber = currentBuild
+
+        // Инкрементируем номер сборки только для Local и GitHub
+        if (buildSource == "Local" || buildSource == "GitHub") {
+            finalBuildNumber = currentBuild + 1
+            buildProps.setProperty("buildNumber", finalBuildNumber.toString())
+            buildPropertiesFile.outputStream().use { buildProps.store(it, null) }
+        }
 
         // Генерируем app.properties
         val props = Properties()
         props.setProperty("version", packageVersion)
-        props.setProperty("buildNumber", newBuildNumber.toString())
-        // Определяем источник сборки
-        val buildSource = if (System.getenv("GITHUB_ACTIONS") == "true") "GitHub" else "Local"
+        props.setProperty("buildNumber", finalBuildNumber.toString())
         props.setProperty("buildSource", buildSource)
 
         // Извлекаем версию Gradle
