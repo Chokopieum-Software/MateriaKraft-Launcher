@@ -43,7 +43,7 @@ class VersionManager(pathManager: PathManager) {
         }
         try {
             val manifest = json.decodeFromString<VersionManifest>(cacheFile.readText())
-            return manifest.versions.map { MinecraftVersion(it.id, it.type) }
+            return manifest.versions.map { MinecraftVersion(it.id, it.type, it.releaseTime) }
         } catch (e: Exception) {
             log("Ошибка чтения кэша версий Minecraft: ${e.message}")
             return emptyList()

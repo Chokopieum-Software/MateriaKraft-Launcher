@@ -113,7 +113,7 @@ data class VersionProfile(
 // --- UI-facing Models ---
 
 @Serializable
-data class MinecraftVersion(val id: String, val type: String)
+data class MinecraftVersion(val id: String, val type: String, val releaseTime: String)
 
 @Serializable
 data class FabricGameVersion(val version: String, val stable: Boolean)
@@ -128,7 +128,7 @@ data class FabricVersion(val version: String, val stable: Boolean)
 data class VersionManifest(val versions: List<VersionEntry>)
 
 @Serializable
-data class VersionEntry(val id: String, val type: String, val url: String)
+data class VersionEntry(val id: String, val type: String, val url: String, val releaseTime: String)
 
 @Serializable
 data class FabricLoaderApiResponse(
