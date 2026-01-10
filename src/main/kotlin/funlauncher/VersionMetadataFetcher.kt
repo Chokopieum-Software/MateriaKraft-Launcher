@@ -12,9 +12,13 @@ import io.ktor.client.call.*
 import io.ktor.client.request.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.nio.file.Path
+import java.util.zip.ZipFile
 import kotlin.io.path.*
 
 /**
@@ -32,7 +36,7 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
 
     private fun log(message: String) = println("[VersionFetcher] $message")
 
-    suspend fun getVersionInfo(build: MinecraftBuild): VersionInfo {
+    suspend fun getVersionInfo(build: MinecraftBuild, task: DownloadTask? = null): VersionInfo {
         // 1. Определяем ID версии для поиска
         val versionIdToFind = build.modloaderVersion ?: build.version
         val jsonFile = globalVersionsDir.resolve(versionIdToFind).resolve("$versionIdToFind.json")
@@ -52,9 +56,11 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
         // 3. Если локального файла нет или он поврежден, получаем информацию из сети
         log("Локальный файл для '$versionIdToFind' не найден или поврежден. Получение из сети...")
         val resultInfo = when (build.type) {
-            BuildType.FABRIC -> fetchFabricProfile(build)
-            BuildType.FORGE -> fetchForgeProfile(build)
-            BuildType.VANILLA -> fetchVanillaVersionInfo(build.version)
+            BuildType.FABRIC -> fetchFabricProfile(build, task)
+            BuildType.FORGE -> fetchForgeProfile(build, task)
+            BuildType.QUILT -> fetchQuiltProfile(build, task)
+            BuildType.NEOFORGE -> fetchNeoForgeProfile(build, task)
+            BuildType.VANILLA -> fetchVanillaVersionInfo(build.version, task)
         }
 
         // 4. Обработка для Linux ARM
@@ -136,10 +142,12 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
     }
 
 
-    private suspend fun fetchFabricProfile(build: MinecraftBuild): VersionInfo {
+    private suspend fun fetchFabricProfile(build: MinecraftBuild, task: DownloadTask?): VersionInfo {
         val (gameVersion, loaderVersion) = parseFabricVersion(build.version)
-        val vanillaInfo = fetchVanillaVersionInfo(gameVersion)
+        task?.let { DownloadManager.updateTask(it.id, 0.06f, "Получение Vanilla $gameVersion") }
+        val vanillaInfo = fetchVanillaVersionInfo(gameVersion, task)
 
+        task?.let { DownloadManager.updateTask(it.id, 0.08f, "Получение профиля Fabric") }
         val fabricProfileUrl = "https://meta.fabricmc.net/v2/versions/loader/$gameVersion/$loaderVersion/profile/json"
         val fabricProfile = client.get(fabricProfileUrl).body<FabricProfile>()
 
@@ -156,23 +164,25 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
         )
     }
 
-    private suspend fun fetchForgeProfile(build: MinecraftBuild): VersionInfo {
+    private suspend fun fetchForgeProfile(build: MinecraftBuild, task: DownloadTask?): VersionInfo {
         val versionId = build.modloaderVersion ?: build.version
         val (gameVersion, forgeVersion) = parseForgeVersion(versionId)
 
-        fetchVanillaVersionInfo(gameVersion)
+        task?.let { DownloadManager.updateTask(it.id, 0.06f, "Получение Vanilla $gameVersion") }
+        fetchVanillaVersionInfo(gameVersion, task)
 
         val installerUrl = "https://maven.minecraftforge.net/net/minecraftforge/forge/$gameVersion-$forgeVersion/forge-$gameVersion-$forgeVersion-installer.jar"
         val installerJar = launcherDataDir.resolve("temp").resolve("forge-installer-$versionId.jar")
         
         installerJar.parent.createDirectories()
         if (!installerJar.exists()) {
+            task?.let { DownloadManager.updateTask(it.id, 0.07f, "Загрузка установщика Forge") }
             log("Downloading Forge Installer...")
             val bytes = client.get(installerUrl).body<ByteArray>()
             installerJar.writeBytes(bytes)
         }
 
-        runForgeInstaller(installerJar)
+        runForgeInstaller(installerJar, task)
 
         val modernForgeJsonPath = globalVersionsDir.resolve(versionId).resolve("$versionId.json")
         val legacyForgeJsonPath = globalLibrariesDir.resolve("net/minecraftforge/forge/$gameVersion-$forgeVersion/forge-$gameVersion-$forgeVersion-client.json")
@@ -184,7 +194,7 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
         }
 
         val versionProfile = json.decodeFromString<VersionProfile>(profileJsonPath.readText())
-        val vanillaInfo = fetchVanillaVersionInfo(versionProfile.inheritsFrom)
+        val vanillaInfo = fetchVanillaVersionInfo(versionProfile.inheritsFrom, task)
 
         return vanillaInfo.copy(
             id = versionProfile.id,
@@ -195,7 +205,80 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
         )
     }
 
-    private suspend fun runForgeInstaller(installerJar: Path) = withContext(Dispatchers.IO) {
+    private suspend fun fetchQuiltProfile(build: MinecraftBuild, task: DownloadTask?): VersionInfo {
+        val (gameVersion, loaderVersion) = parseQuiltVersion(build.version)
+        task?.let { DownloadManager.updateTask(it.id, 0.06f, "Получение Vanilla $gameVersion") }
+        val vanillaInfo = fetchVanillaVersionInfo(gameVersion, task)
+
+        task?.let { DownloadManager.updateTask(it.id, 0.08f, "Получение профиля Quilt") }
+        val quiltProfileUrl = "https://meta.quiltmc.org/v3/versions/loader/$gameVersion/$loaderVersion/profile/json"
+        val quiltProfile = client.get(quiltProfileUrl).body<FabricProfile>() // Quilt profile is compatible with Fabric's
+
+        if (quiltProfile.id == null || quiltProfile.mainClass == null) {
+            throw IllegalStateException("Failed to get valid Quilt profile. The server might have returned an error or the version is invalid.")
+        }
+
+        return vanillaInfo.copy(
+            id = quiltProfile.id,
+            mainClass = quiltProfile.mainClass,
+            libraries = quiltProfile.libraries + vanillaInfo.libraries,
+            arguments = mergeArguments(vanillaInfo.arguments, quiltProfile.arguments),
+            gameArguments = null
+        )
+    }
+
+    @Serializable
+    private data class InstallerProfile(val version: String)
+
+    private suspend fun fetchNeoForgeProfile(build: MinecraftBuild, task: DownloadTask?): VersionInfo {
+        val (gameVersion, neoForgeVersion) = parseNeoForgeVersion(build.version)
+        task?.let { DownloadManager.updateTask(it.id, 0.06f, "Получение Vanilla $gameVersion") }
+        fetchVanillaVersionInfo(gameVersion, task)
+
+        val installerUrl = "https://maven.neoforged.net/releases/net/neoforged/neoforge/$neoForgeVersion/neoforge-$neoForgeVersion-installer.jar"
+        val installerJar = launcherDataDir.resolve("temp").resolve("neoforge-installer-$neoForgeVersion.jar")
+
+        installerJar.parent.createDirectories()
+        if (!installerJar.exists()) {
+            task?.let { DownloadManager.updateTask(it.id, 0.07f, "Загрузка установщика NeoForge") }
+            log("Downloading NeoForge Installer...")
+            val bytes = client.get(installerUrl).body<ByteArray>()
+            installerJar.writeBytes(bytes)
+        }
+
+        // Read the version ID from the installer's profile
+        val actualVersionId = withContext(Dispatchers.IO) {
+            ZipFile(installerJar.toFile()).use { zip ->
+                val entry = zip.getEntry("install_profile.json")
+                    ?: throw IllegalStateException("install_profile.json not found in NeoForge installer.")
+                val content = zip.getInputStream(entry).bufferedReader().readText()
+                json.decodeFromString<InstallerProfile>(content).version
+            }
+        }
+        log("Installer will create version: $actualVersionId")
+
+        runForgeInstaller(installerJar, task) // NeoForge installer is compatible with Forge's
+
+        val profileJsonPath = globalVersionsDir.resolve(actualVersionId).resolve("$actualVersionId.json")
+        if (!profileJsonPath.exists()) {
+            throw IllegalStateException("NeoForge installer did not create the expected version JSON file: $profileJsonPath")
+        }
+
+        val versionProfile = json.decodeFromString<VersionProfile>(profileJsonPath.readText())
+        val vanillaInfo = fetchVanillaVersionInfo(versionProfile.inheritsFrom, task)
+
+        return vanillaInfo.copy(
+            id = versionProfile.id,
+            mainClass = versionProfile.mainClass,
+            libraries = versionProfile.libraries + vanillaInfo.libraries,
+            arguments = mergeArguments(vanillaInfo.arguments, versionProfile.arguments),
+            gameArguments = null
+        )
+    }
+
+
+    private suspend fun runForgeInstaller(installerJar: Path, task: DownloadTask?) = withContext(Dispatchers.IO) {
+        task?.let { DownloadManager.updateTask(it.id, 0.09f, "Запуск установщика...") }
         log("Running Forge installer: $installerJar")
 
         val fakeProfiles = launcherDataDir.resolve("launcher_profiles.json")
@@ -210,7 +293,10 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
         val process = ProcessBuilder(command).redirectErrorStream(true).start()
 
         process.inputStream.bufferedReader().useLines { lines ->
-            lines.forEach { log("Installer: $it") }
+            lines.forEach {
+                log("Installer: $it")
+                task?.let { task -> DownloadManager.updateTask(task.id, 0.09f, "Установщик: ${it.take(40)}...") }
+            }
         }
 
         val exitCode = process.waitFor()
@@ -220,7 +306,7 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
         log("Forge installer finished successfully.")
     }
 
-    private suspend fun fetchVanillaVersionInfo(gameVersion: String): VersionInfo {
+    private suspend fun fetchVanillaVersionInfo(gameVersion: String, task: DownloadTask?): VersionInfo {
         val jsonFile = globalVersionsDir.resolve(gameVersion).resolve("$gameVersion.json")
         if (jsonFile.exists()) {
             return json.decodeFromString(jsonFile.readText())
@@ -239,6 +325,7 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
         }
 
         if (versionUrl == null) {
+            task?.let { DownloadManager.updateTask(it.id, task.progress.value, "Загрузка манифеста Vanilla") }
             log("Fetching vanilla manifest from network...")
             val manifest = client.get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json").body<VersionManifest>()
             versionUrl = manifest.versions.find { it.id == gameVersion }?.url
@@ -246,6 +333,7 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
 
         val finalUrl = versionUrl ?: throw Exception("Base version '$gameVersion' not found in cache or network")
 
+        task?.let { DownloadManager.updateTask(it.id, task.progress.value, "Загрузка JSON-файла Vanilla") }
         val bytes = client.get(finalUrl).body<ByteArray>()
         jsonFile.parent.createDirectories()
         jsonFile.writeBytes(bytes)
@@ -266,6 +354,16 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
     private fun parseForgeVersion(version: String): Pair<String, String> {
         val parts = version.split("-forge-")
         return if (parts.size == 2) parts[0] to parts[1] else throw IllegalArgumentException("Invalid Forge version string: $version")
+    }
+
+    private fun parseQuiltVersion(version: String): Pair<String, String> {
+        val parts = version.split("-quilt-")
+        return if (parts.size == 2) parts[0] to parts[1] else throw IllegalArgumentException("Invalid Quilt version string: $version")
+    }
+
+    private fun parseNeoForgeVersion(version: String): Pair<String, String> {
+        val parts = version.split("-neoforge-")
+        return if (parts.size == 2) parts[0] to parts[1] else throw IllegalArgumentException("Invalid NeoForge version string: $version")
     }
 
     private fun getOsName(): String = when {

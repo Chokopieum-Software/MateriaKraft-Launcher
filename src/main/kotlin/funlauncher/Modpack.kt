@@ -27,5 +27,7 @@ data class ModpackFile(
 data class ModpackDependencies(
     val minecraft: String,
     @SerialName("fabric-loader") val fabricLoader: String? = null,
-    @SerialName("forge") val forge: String? = null
+    @SerialName("forge") val forge: String? = null,
+    @SerialName("quilt-loader") val quiltLoader: String? = null,
+    @SerialName("neoforge") val neoforge: String? = null
 )

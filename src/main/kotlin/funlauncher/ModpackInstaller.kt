@@ -16,6 +16,7 @@ import kotlin.io.path.writeBytes
 class ModpackInstaller(
     private val buildManager: BuildManager,
     private val modrinthApi: ModrinthApi,
+    private val pathManager: PathManager,
     private val scope: CoroutineScope // Используем внешний scope
 ) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -65,13 +66,17 @@ class ModpackInstaller(
                 // 3. Создаем новую сборку
                 DownloadManager.updateTask(task.id, 0.15f, "Создание сборки...")
                 val buildType = when {
+                    modrinthIndex.dependencies.quiltLoader != null -> BuildType.QUILT
+                    modrinthIndex.dependencies.neoforge != null -> BuildType.NEOFORGE
                     modrinthIndex.dependencies.fabricLoader != null -> BuildType.FABRIC
                     modrinthIndex.dependencies.forge != null -> BuildType.FORGE
                     else -> BuildType.VANILLA
                 }
                 val mcVersion = modrinthIndex.dependencies.minecraft
-                val loaderVersion = modrinthIndex.dependencies.fabricLoader ?: modrinthIndex.dependencies.forge ?: ""
+                val loaderVersion = modrinthIndex.dependencies.quiltLoader ?: modrinthIndex.dependencies.neoforge ?: modrinthIndex.dependencies.fabricLoader ?: modrinthIndex.dependencies.forge ?: ""
                 val buildVersionString = when(buildType) {
+                    BuildType.QUILT -> "$mcVersion-quilt-$loaderVersion"
+                    BuildType.NEOFORGE -> "$mcVersion-neoforge-$loaderVersion"
                     BuildType.FABRIC -> "$mcVersion-fabric-$loaderVersion"
                     BuildType.FORGE -> "$mcVersion-forge-$loaderVersion"
                     else -> mcVersion
@@ -85,7 +90,13 @@ class ModpackInstaller(
                 }
 
                 val project = modrinthApi.getProject(modpackVersion.projectId)
-                buildManager.addBuild(buildName, buildVersionString, buildType, project.iconUrl)
+                val bannerGenerator = BannerGenerator(pathManager)
+                val bannerPath = project.iconUrl?.let {
+                    DownloadManager.updateTask(task.id, 0.18f, "Создание фона...")
+                    bannerGenerator.generateBanner(it, buildName)
+                }
+
+                buildManager.addBuild(buildName, buildVersionString, buildType, bannerPath)
                 val newBuild = buildManager.loadBuilds().first { it.name == buildName }
 
                 // 4. Копируем файлы из overrides

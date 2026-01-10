@@ -46,6 +46,9 @@ fun AddBuildDialog(
     var fabricLoaderVersions by remember { mutableStateOf<List<FabricVersion>>(emptyList()) }
     var forgeVersions by remember { mutableStateOf<List<ForgeVersion>>(emptyList()) }
     var applicableForgeVersions by remember { mutableStateOf<List<ForgeVersion>>(emptyList()) }
+    var quiltLoaderVersions by remember { mutableStateOf<List<QuiltVersion>>(emptyList()) }
+    var neoForgeVersions by remember { mutableStateOf<List<NeoForgeVersion>>(emptyList()) }
+    var applicableNeoForgeVersions by remember { mutableStateOf<List<NeoForgeVersion>>(emptyList()) }
 
     var isLoading by remember { mutableStateOf(false) }
 
@@ -65,6 +68,7 @@ fun AddBuildDialog(
         scope.launch {
             vanillaVersions = versionManager.getMinecraftVersions()
             forgeVersions = versionManager.getForgeVersions()
+            neoForgeVersions = versionManager.getNeoForgeVersions()
             isLoading = false
         }
     }
@@ -87,6 +91,19 @@ fun AddBuildDialog(
                     val recommended = applicableForgeVersions.find { it.isRecommended }
                     val latest = applicableForgeVersions.find { it.isLatest }
                     selectedLoaderVersion = recommended?.forgeVersion ?: latest?.forgeVersion ?: applicableForgeVersions.firstOrNull()?.forgeVersion ?: ""
+                }
+                BuildType.QUILT -> {
+                    isLoading = true
+                    quiltLoaderVersions = emptyList()
+                    scope.launch {
+                        quiltLoaderVersions = versionManager.getQuiltLoaderVersions(mcVersion.id)
+                        selectedLoaderVersion = quiltLoaderVersions.firstOrNull()?.version ?: ""
+                        isLoading = false
+                    }
+                }
+                BuildType.NEOFORGE -> {
+                    applicableNeoForgeVersions = neoForgeVersions.filter { it.mcVersion == mcVersion.id }
+                    selectedLoaderVersion = applicableNeoForgeVersions.firstOrNull()?.neoForgeVersion ?: ""
                 }
                 else -> {
                     // No loader for Vanilla
@@ -171,7 +188,7 @@ fun AddBuildDialog(
                             }
                             Spacer(Modifier.height(16.dp))
 
-                            if (modLoader == BuildType.FABRIC || modLoader == BuildType.FORGE) {
+                            if (modLoader != BuildType.VANILLA) {
                                 var loaderExpanded by remember { mutableStateOf(false) }
                                 ExposedDropdownMenuBox(expanded = loaderExpanded, onExpandedChange = { loaderExpanded = !loaderExpanded }) {
                                     OutlinedTextField(
@@ -184,33 +201,56 @@ fun AddBuildDialog(
                                         enabled = selectedMcVersion != null
                                     )
                                     ExposedDropdownMenu(expanded = loaderExpanded, onDismissRequest = { loaderExpanded = false }) {
-                                        if (modLoader == BuildType.FABRIC) {
-                                            if (isLoading) {
-                                                DropdownMenuItem(text = { Text("Загрузка...") }, onClick = {}, enabled = false)
-                                            } else {
-                                                fabricLoaderVersions.forEach { v ->
-                                                    DropdownMenuItem(text = { Text(v.version) }, onClick = {
-                                                        selectedLoaderVersion = v.version
-                                                        loaderExpanded = false
-                                                    })
-                                                }
-                                            }
-                                        } else if (modLoader == BuildType.FORGE) {
-                                            applicableForgeVersions.forEach { v ->
-                                                DropdownMenuItem(
-                                                    text = {
-                                                        val label = buildString {
-                                                            append(v.forgeVersion)
-                                                            if (v.isRecommended) append(" (рекомендуемая)")
-                                                            else if (v.isLatest) append(" (последняя)")
-                                                        }
-                                                        Text(label)
-                                                    },
-                                                    onClick = {
-                                                        selectedLoaderVersion = v.forgeVersion
-                                                        loaderExpanded = false
+                                        if (isLoading) {
+                                            DropdownMenuItem(text = { Text("Загрузка...") }, onClick = {}, enabled = false)
+                                        } else {
+                                            when (modLoader) {
+                                                BuildType.FABRIC -> {
+                                                    fabricLoaderVersions.forEach { v ->
+                                                        DropdownMenuItem(text = { Text(v.version) }, onClick = {
+                                                            selectedLoaderVersion = v.version
+                                                            loaderExpanded = false
+                                                        })
                                                     }
-                                                )
+                                                }
+                                                BuildType.FORGE -> {
+                                                    applicableForgeVersions.forEach { v ->
+                                                        DropdownMenuItem(
+                                                            text = {
+                                                                val label = buildString {
+                                                                    append(v.forgeVersion)
+                                                                    if (v.isRecommended) append(" (рекомендуемая)")
+                                                                    else if (v.isLatest) append(" (последняя)")
+                                                                }
+                                                                Text(label)
+                                                            },
+                                                            onClick = {
+                                                                selectedLoaderVersion = v.forgeVersion
+                                                                loaderExpanded = false
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                                BuildType.QUILT -> {
+                                                    quiltLoaderVersions.forEach { v ->
+                                                        DropdownMenuItem(text = { Text(v.version) }, onClick = {
+                                                            selectedLoaderVersion = v.version
+                                                            loaderExpanded = false
+                                                        })
+                                                    }
+                                                }
+                                                BuildType.NEOFORGE -> {
+                                                    applicableNeoForgeVersions.forEach { v ->
+                                                        DropdownMenuItem(
+                                                            text = { Text(v.neoForgeVersion) },
+                                                            onClick = {
+                                                                selectedLoaderVersion = v.neoForgeVersion
+                                                                loaderExpanded = false
+                                                            }
+                                                        )
+                                                    }
+                                                }
+                                                else -> {}
                                             }
                                         }
                                     }
@@ -229,6 +269,8 @@ fun AddBuildDialog(
                                 val finalVersion = when (modLoader) {
                                     BuildType.FABRIC -> "${selectedMcVersion!!.id}-fabric-$selectedLoaderVersion"
                                     BuildType.FORGE -> "${selectedMcVersion!!.id}-forge-$selectedLoaderVersion"
+                                    BuildType.QUILT -> "${selectedMcVersion!!.id}-quilt-$selectedLoaderVersion"
+                                    BuildType.NEOFORGE -> "${selectedMcVersion!!.id}-neoforge-$selectedLoaderVersion"
                                     else -> selectedMcVersion!!.id
                                 }
                                 val backgroundsDir = File("src/main/resources/backgrounds")

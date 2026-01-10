@@ -12,10 +12,12 @@ import io.ktor.client.call.*
 import io.ktor.client.request.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.readText
 import kotlin.io.path.writeBytes
 
@@ -27,8 +29,12 @@ class CacheManager(pathManager: PathManager) {
     private val cacheDir: Path = pathManager.getCacheDir()
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val VANILLA_MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-    private val FABRIC_LOADER_MANIFEST_URL = "https://meta.fabricmc.net/v2/versions/loader"
+    private val vanillaManifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+    private val fabricLoaderManifestUrl = "https://meta.fabricmc.net/v2/versions/loader"
+    private val quiltLoaderManifestUrl = "https://meta.quiltmc.org/v3/versions/loader"
+    private val neoforgeManifestUrl = "https://maven.neoforged.net/api/maven/versions/releases/net%2Fneoforged%2Fneoforge"
+    private val forgeManifestUrl = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
+
 
     /**
      * Updates all remote resources and stores them in the local cache.
@@ -36,20 +42,38 @@ class CacheManager(pathManager: PathManager) {
      */
     suspend fun updateAllCaches() {
         val task = DownloadManager.startTask("Обновление списков версий")
+        val progress = AtomicReference(0f)
+
+        fun updateProgress(delta: Float, message: String) {
+            val newProgress = progress.accumulateAndGet(delta, Float::plus)
+            DownloadManager.updateTask(task.id, newProgress, message)
+        }
+
         try {
             coroutineScope {
-                // Download Vanilla and Fabric manifests in parallel
-                val vanillaJob = launch {
-                    downloadResource("Vanilla Manifest", VANILLA_MANIFEST_URL, cacheDir.resolve("vanilla_versions.json"))
-                    DownloadManager.updateTask(task.id, 0.5f, "Загружен список Vanilla")
-                }
-                val fabricJob = launch {
-                    downloadResource("Fabric Manifest", FABRIC_LOADER_MANIFEST_URL, cacheDir.resolve("fabric_loaders.json"))
-                    DownloadManager.updateTask(task.id, 0.5f, "Загружен список Fabric")
-                }
-
-                vanillaJob.join()
-                fabricJob.join()
+                val jobs = listOf(
+                    launch {
+                        downloadResource("Vanilla Manifest", vanillaManifestUrl, cacheDir.resolve("vanilla_versions.json"))
+                        updateProgress(0.2f, "Загружен список Vanilla")
+                    },
+                    launch {
+                        downloadResource("Fabric Manifest", fabricLoaderManifestUrl, cacheDir.resolve("fabric_loaders.json"))
+                        updateProgress(0.2f, "Загружен список Fabric")
+                    },
+                    launch {
+                        downloadResource("Quilt Manifest", quiltLoaderManifestUrl, cacheDir.resolve("quilt_loaders.json"))
+                        updateProgress(0.2f, "Загружен список Quilt")
+                    },
+                    launch {
+                        downloadResource("NeoForge Manifest", neoforgeManifestUrl, cacheDir.resolve("neoforge_versions.json"))
+                        updateProgress(0.2f, "Загружен список NeoForge")
+                    },
+                    launch {
+                        downloadResource("Forge Manifest", forgeManifestUrl, cacheDir.resolve("forge_versions.json"))
+                        updateProgress(0.2f, "Загружен список Forge")
+                    }
+                )
+                jobs.joinAll()
             }
             DownloadManager.updateTask(task.id, 1.0f, "Списки версий обновлены")
         } catch (e: CancellationException) {

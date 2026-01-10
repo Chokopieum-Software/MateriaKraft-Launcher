@@ -284,7 +284,8 @@ fun App(
                                     refreshBuilds()
                                     currentTab = AppTab.Home
                                 },
-                                pathManager = pathManager
+                                pathManager = pathManager,
+                                snackbarHostState = snackbarHostState
                             )
                             AppTab.Settings -> SettingsTab(
                                 currentSettings = appState.settings,

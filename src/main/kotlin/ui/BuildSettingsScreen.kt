@@ -220,6 +220,8 @@ fun BuildSettingsScreen(
                                 val finalVersion = when (selectedBuildType) {
                                     BuildType.FABRIC -> "$selectedMcVersion-fabric-$selectedLoaderVersion"
                                     BuildType.FORGE -> "$selectedMcVersion-forge-$selectedLoaderVersion"
+                                    BuildType.QUILT -> "$selectedMcVersion-quilt-$selectedLoaderVersion"
+                                    BuildType.NEOFORGE -> "$selectedMcVersion-neoforge-$selectedLoaderVersion"
                                     else -> selectedMcVersion
                                 }
                                 onSave(buildName, finalVersion, selectedBuildType, imagePath, selectedJavaPath, if (useGlobalRam) null else maxRam, if (useGlobalJavaArgs) null else javaArgs, if (useGlobalEnvVars) null else envVars)
@@ -528,16 +530,22 @@ private fun MainSettingsTab(
     var fabricLoaderVersions by remember { mutableStateOf<List<FabricVersion>>(emptyList()) }
     var forgeVersions by remember { mutableStateOf<List<ForgeVersion>>(emptyList()) }
     var applicableForgeVersions by remember { mutableStateOf<List<ForgeVersion>>(emptyList()) }
+    var quiltGameVersions by remember { mutableStateOf<List<QuiltGameVersion>>(emptyList()) }
+    var quiltLoaderVersions by remember { mutableStateOf<List<QuiltVersion>>(emptyList()) }
+    var neoForgeVersions by remember { mutableStateOf<List<NeoForgeVersion>>(emptyList()) }
+    var applicableNeoForgeVersions by remember { mutableStateOf<List<NeoForgeVersion>>(emptyList()) }
     var isLoadingMcVersions by remember { mutableStateOf(false) }
     var isLoadingLoaderVersions by remember { mutableStateOf(false) }
 
     val totalSystemMemory = remember { (ManagementFactory.getOperatingSystemMXBean() as com.sun.management.OperatingSystemMXBean).totalMemorySize / (1024 * 1024) }
 
-    val displayedMcVersions = remember(selectedBuildType, allMcVersions, fabricGameVersions, forgeVersions) {
+    val displayedMcVersions = remember(selectedBuildType, allMcVersions, fabricGameVersions, forgeVersions, quiltGameVersions, neoForgeVersions) {
         val releaseVersions = allMcVersions.filter { it.type == "release" }.map { it.id }
         when (selectedBuildType) {
             BuildType.FABRIC -> releaseVersions.filter { it in fabricGameVersions.map { gv -> gv.version }.toSet() }
             BuildType.FORGE -> releaseVersions.filter { it in forgeVersions.map { fv -> fv.mcVersion }.toSet() }
+            BuildType.QUILT -> releaseVersions.filter { it in quiltGameVersions.map { gv -> gv.version }.toSet() }
+            BuildType.NEOFORGE -> releaseVersions.filter { it in neoForgeVersions.map { v -> v.mcVersion }.toSet() }
             else -> releaseVersions
         }
     }
@@ -548,9 +556,13 @@ private fun MainSettingsTab(
             val mc = async { versionManager.getMinecraftVersions() }
             val fabric = async { versionManager.getFabricGameVersions() }
             val forge = async { versionManager.getForgeVersions() }
+            val quilt = async { versionManager.getQuiltGameVersions() }
+            val neoforge = async { versionManager.getNeoForgeVersions() }
             allMcVersions = mc.await()
             fabricGameVersions = fabric.await()
             forgeVersions = forge.await()
+            quiltGameVersions = quilt.await()
+            neoForgeVersions = neoforge.await()
             isLoadingMcVersions = false
         }
     }
@@ -572,6 +584,18 @@ private fun MainSettingsTab(
                         val recommended = applicableForgeVersions.find { it.isRecommended }
                         val latest = applicableForgeVersions.find { it.isLatest }
                         onSelectedLoaderVersionChange(recommended?.forgeVersion ?: latest?.forgeVersion ?: applicableForgeVersions.firstOrNull()?.forgeVersion ?: "")
+                    }
+                }
+                BuildType.QUILT -> {
+                    quiltLoaderVersions = versionManager.getQuiltLoaderVersions(selectedMcVersion)
+                    if (selectedLoaderVersion.isBlank() || quiltLoaderVersions.none { it.version == selectedLoaderVersion }) {
+                        onSelectedLoaderVersionChange(quiltLoaderVersions.firstOrNull()?.version ?: "")
+                    }
+                }
+                BuildType.NEOFORGE -> {
+                    applicableNeoForgeVersions = neoForgeVersions.filter { it.mcVersion == selectedMcVersion }
+                    if (selectedLoaderVersion.isBlank() || applicableNeoForgeVersions.none { it.neoForgeVersion == selectedLoaderVersion }) {
+                        onSelectedLoaderVersionChange(applicableNeoForgeVersions.firstOrNull()?.neoForgeVersion ?: "")
                     }
                 }
                 else -> {}
@@ -614,6 +638,8 @@ private fun MainSettingsTab(
             mcVersions = displayedMcVersions,
             fabricVersions = fabricLoaderVersions,
             forgeVersions = applicableForgeVersions,
+            quiltVersions = quiltLoaderVersions,
+            neoForgeVersions = applicableNeoForgeVersions,
             selectedMcVersion = selectedMcVersion,
             onMcVersionSelected = onSelectedMcVersionChange,
             selectedLoaderVersion = selectedLoaderVersion,
@@ -677,6 +703,8 @@ private fun VersionSelectionGroup(
     mcVersions: List<String>,
     fabricVersions: List<FabricVersion>,
     forgeVersions: List<ForgeVersion>,
+    quiltVersions: List<QuiltVersion>,
+    neoForgeVersions: List<NeoForgeVersion>,
     selectedMcVersion: String,
     onMcVersionSelected: (String) -> Unit,
     selectedLoaderVersion: String,
@@ -715,6 +743,8 @@ private fun VersionSelectionGroup(
                             }
                             DropdownWithLabels("Forge", items, selectedLoaderVersion, onLoaderVersionSelected, items.isNotEmpty())
                         }
+                        BuildType.QUILT -> Dropdown("Quilt Loader", quiltVersions.map { it.version }, selectedLoaderVersion, onLoaderVersionSelected, quiltVersions.isNotEmpty())
+                        BuildType.NEOFORGE -> Dropdown("NeoForge", neoForgeVersions.map { it.neoForgeVersion }, selectedLoaderVersion, onLoaderVersionSelected, neoForgeVersions.isNotEmpty())
                         else -> {}
                     }
                 }
@@ -764,6 +794,8 @@ private fun parseBuildVersion(version: String, type: BuildType): Pair<String, St
     val delimiter = when (type) {
         BuildType.FABRIC -> "-fabric-"
         BuildType.FORGE -> "-forge-"
+        BuildType.QUILT -> "-quilt-"
+        BuildType.NEOFORGE -> "-neoforge-"
         else -> return version to ""
     }
     val parts = version.split(delimiter)

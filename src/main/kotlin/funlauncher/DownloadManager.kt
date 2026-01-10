@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
@@ -46,9 +47,9 @@ object DownloadManager {
      * Начинает новую задачу и добавляет ее в список отслеживания.
      * @return Созданная задача.
      */
-    fun startTask(description: String): DownloadTask {
+    suspend fun startTask(description: String): DownloadTask {
         val task = DownloadTask(id = UUID.randomUUID().toString(), description = description)
-        scope.launch {
+        withContext(Dispatchers.Main) {
             tasks.add(task)
         }
         return task

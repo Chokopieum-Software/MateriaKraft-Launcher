@@ -11,7 +11,7 @@ plugins {
     kotlin("plugin.serialization") version "2.3.0"
     kotlin("plugin.compose") version "2.3.0"
     // Плагин Compose Multiplatform
-    id("org.jetbrains.compose") version "1.9.3"
+    id("org.jetbrains.compose") version "1.10.0-rc02"
 }
 
 val packageVersion = "1.0.60000"
@@ -38,7 +38,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.akuleshov7:ktoml-core-jvm:0.7.1")
-
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.39.0")
     // === Логгирование ===
     implementation("org.slf4j:slf4j-simple:2.0.17")
 

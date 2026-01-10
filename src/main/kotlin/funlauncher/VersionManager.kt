@@ -72,9 +72,13 @@ class VersionManager(pathManager: PathManager) {
     }
 
     suspend fun getForgeVersions(): List<ForgeVersion> {
-        val url = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
+        val cacheFile = cacheDir.resolve("forge_versions.json")
+        if (!cacheFile.exists()) {
+            log("Кэш версий Forge не найден.")
+            return emptyList()
+        }
         try {
-            val response = client.get(url).body<JsonObject>()
+            val response = json.decodeFromString<JsonObject>(cacheFile.readText())
             val promos = response["promos"] as JsonObject
             val versions = mutableListOf<ForgeVersion>()
 
@@ -103,6 +107,69 @@ class VersionManager(pathManager: PathManager) {
         } catch (e: Exception) {
             log("Ошибка при получении версий Forge: ${e.message}")
             return emptyList()
+        }
+    }
+
+    suspend fun getQuiltGameVersions(): List<QuiltGameVersion> {
+        val url = "https://meta.quiltmc.org/v3/versions/game"
+        try {
+            return client.get(url).body<List<QuiltGameVersion>>()
+        } catch (e: Exception) {
+            log("Ошибка при получении поддерживаемых Quilt версий игр: ${e.message}")
+            return emptyList()
+        }
+    }
+
+    suspend fun getQuiltLoaderVersions(gameVersion: String): List<QuiltVersion> {
+        val url = "https://meta.quiltmc.org/v3/versions/loader/$gameVersion"
+        try {
+            val response = client.get(url).body<List<QuiltLoaderApiResponse>>()
+            return response.map { QuiltVersion(it.loader.version) }
+        } catch (e: Exception) {
+            log("Ошибка при получении версий загрузчика Quilt для $gameVersion: ${e.message}")
+            return emptyList()
+        }
+    }
+
+    suspend fun getNeoForgeVersions(): List<NeoForgeVersion> {
+        val cacheFile = cacheDir.resolve("neoforge_versions.json")
+        if (!cacheFile.exists()) {
+            log("Кэш версий NeoForge не найден.")
+            return emptyList()
+        }
+        try {
+            val response = json.decodeFromString<NeoForgeApiResponse>(cacheFile.readText())
+            return response.versions.mapNotNull { neoVersion ->
+                getMcVersionFromNeoForgeVersion(neoVersion)?.let { mcVersion ->
+                    NeoForgeVersion(mcVersion, neoVersion)
+                }
+            }
+        } catch (e: Exception) {
+            log("Ошибка при получении версий NeoForge: ${e.message}")
+            return emptyList()
+        }
+    }
+
+    private fun getMcVersionFromNeoForgeVersion(versionString: String): String? {
+        if (versionString.startsWith("0")) return null // April Fools versions
+
+        val parts = versionString.split('.')
+        return try {
+            if (parts.first().toInt() >= 26) {
+                var mcVersion = "${parts[0]}.${parts[1]}"
+                if (parts[2] != "0") {
+                    mcVersion += ".${parts[2]}"
+                }
+                val snapshotIdentifier = versionString.split('+').getOrNull(1)
+                if (snapshotIdentifier != null) {
+                    mcVersion += "-$snapshotIdentifier"
+                }
+                mcVersion
+            } else {
+                "1.${parts[0]}.${parts[1]}"
+            }
+        } catch (e: NumberFormatException) {
+            null
         }
     }
 }

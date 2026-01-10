@@ -25,7 +25,9 @@ import kotlin.io.path.*
 enum class BuildType {
     VANILLA,
     FABRIC,
-    FORGE
+    FORGE,
+    QUILT,
+    NEOFORGE
 }
 
 @Serializable
@@ -171,6 +173,8 @@ class BuildManager(private val pathManager: PathManager) {
                 val versionId = jsonElement.jsonObject["id"]?.jsonPrimitive?.content
                 if (versionId != null) {
                     val buildType = when {
+                        versionId.contains("quilt", ignoreCase = true) -> BuildType.QUILT
+                        versionId.contains("neoforge", ignoreCase = true) -> BuildType.NEOFORGE
                         versionId.contains("fabric", ignoreCase = true) -> BuildType.FABRIC
                         versionId.contains("forge", ignoreCase = true) -> BuildType.FORGE
                         else -> BuildType.VANILLA
@@ -366,6 +370,8 @@ private data class OldMinecraftBuild(
 ) {
     fun toNewBuild(): MinecraftBuild {
         val buildType = when (type.uppercase()) {
+            "QUILT" -> BuildType.QUILT
+            "NEOFORGE" -> BuildType.NEOFORGE
             "FABRIC" -> BuildType.FABRIC
             "FORGE" -> BuildType.FORGE
             else -> BuildType.VANILLA

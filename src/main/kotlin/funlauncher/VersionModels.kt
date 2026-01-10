@@ -121,6 +121,18 @@ data class FabricGameVersion(val version: String, val stable: Boolean)
 @Serializable
 data class FabricVersion(val version: String, val stable: Boolean)
 
+@Serializable
+data class QuiltGameVersion(val version: String, val stable: Boolean)
+
+@Serializable
+data class QuiltVersion(val version: String)
+
+@Serializable
+data class NeoForgeVersion(
+    val mcVersion: String,
+    val neoForgeVersion: String
+)
+
 
 // --- Manifests for fetching version lists ---
 
@@ -139,6 +151,21 @@ data class FabricLoaderApiResponse(
 data class FabricLoaderInfo(
     val version: String,
     val stable: Boolean
+)
+
+@Serializable
+data class QuiltLoaderApiResponse(
+    val loader: QuiltLoaderInfo
+)
+
+@Serializable
+data class QuiltLoaderInfo(
+    val version: String
+)
+
+@Serializable
+data class NeoForgeApiResponse(
+    val versions: List<String>
 )
 
 

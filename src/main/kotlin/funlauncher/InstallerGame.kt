@@ -36,7 +36,7 @@ class MinecraftInstaller(private val build: MinecraftBuild, private val buildMan
             // 1. Fetch Version Metadata
             DownloadManager.updateTask(task.id, 0.05f, "Получение метаданных...")
             val metadataFetcher = VersionMetadataFetcher(buildManager, pathManager)
-            val versionInfo = metadataFetcher.getVersionInfo(build)
+            val versionInfo = metadataFetcher.getVersionInfo(build, task)
 
             // 2. Download Files
             DownloadManager.updateTask(task.id, 0.1f, "Загрузка файлов...")

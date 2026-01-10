@@ -20,8 +20,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import com.mikepenz.markdown.m3.Markdown
 import funlauncher.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -89,7 +91,6 @@ fun ModificationCard(hit: Hit, onClick: () -> Unit) {
 fun ModificationDetails(
     project: Project,
     projectVersions: List<Version>,
-    onBack: () -> Unit,
     onInstallClick: (Version) -> Unit
 ) {
     LazyColumn(
@@ -97,17 +98,10 @@ fun ModificationDetails(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(project.title, style = MaterialTheme.typography.headlineSmall)
-            }
-        }
+            Markdown(
+                content = project.body,
 
-        item {
-            Text(project.body)
+            )
         }
 
         item {
@@ -169,13 +163,14 @@ fun ModificationsScreen(
     navPanelPosition: NavPanelPosition,
     buildManager: BuildManager,
     onModpackInstalled: () -> Unit,
-    pathManager: PathManager
+    pathManager: PathManager,
+    snackbarHostState: SnackbarHostState
 ) {
     val scope = rememberCoroutineScope()
     val modrinthApi = remember { ModrinthApi() }
     val modificationDownloader = remember { ModificationDownloader() }
     // Используем глобальный scope для установщика
-    val modpackInstaller = remember { ModpackInstaller(buildManager, modrinthApi, ApplicationScope.scope) }
+    val modpackInstaller = remember { ModpackInstaller(buildManager, modrinthApi, pathManager, ApplicationScope.scope) }
     val cacheManager = remember { CacheManager(pathManager) }
 
     var searchQuery by remember { mutableStateOf("") }
@@ -193,6 +188,8 @@ fun ModificationsScreen(
     val versions = remember { mutableStateListOf<String>() }
     val selectedVersions = remember { mutableStateListOf<String>() }
     val categoryFilters = remember { mutableStateMapOf<ModrinthCategory, CategoryFilterState>() }
+    
+    var versionLoadTrigger by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         allBuilds.addAll(buildManager.loadBuilds())
@@ -204,15 +201,25 @@ fun ModificationsScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(versionLoadTrigger) {
         withContext(Dispatchers.IO) {
             val cachedVersions = cacheManager.getVanillaVersions()
-            if (cachedVersions.isEmpty()) {
+            if (cachedVersions.isEmpty() || versionLoadTrigger > 0) { // Force reload on trigger
                 try {
                     cacheManager.updateAllCaches()
+                    versions.clear()
                     versions.addAll(cacheManager.getVanillaVersions())
-                } catch (_: Exception) {
-                    // Handle exceptions
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        val result = snackbarHostState.showSnackbar(
+                            message = "Ошибка загрузки версий: ${e.message}",
+                            actionLabel = "Повторить",
+                            duration = SnackbarDuration.Indefinite
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            versionLoadTrigger++
+                        }
+                    }
                 }
             } else {
                 versions.addAll(cachedVersions)
@@ -220,35 +227,39 @@ fun ModificationsScreen(
         }
     }
 
-    LaunchedEffect(searchQuery, selectedType, selectedVersions.size, categoryFilters.size) {
-        isLoading = true
-        scope.launch(Dispatchers.IO) {
-            try {
-                val facets = mutableListOf<List<String>>()
-                facets.add(listOf("project_type:${selectedType.projectType}"))
-                selectedVersions.forEach { facets.add(listOf("versions:$it")) }
+    LaunchedEffect(searchQuery, selectedType, selectedVersions.size, categoryFilters.toMap()) {
+        if (selectedProject == null) { // Не запускаем поиск, если открыты детали
+            isLoading = true
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val facets = mutableListOf<List<String>>()
+                    facets.add(listOf("project_type:${selectedType.projectType}"))
+                    selectedVersions.forEach { facets.add(listOf("versions:$it")) }
 
-                val includedCategories = categoryFilters.filter { it.value == CategoryFilterState.INCLUDED }.keys.map { "categories:${it.internalName}" }
-                val excludedCategories = categoryFilters.filter { it.value == CategoryFilterState.EXCLUDED }.keys.map { "categories:${it.internalName}" }
+                    val includedCategories = categoryFilters.filter { it.value == CategoryFilterState.INCLUDED }.keys.map { "categories:${it.internalName}" }
+                    val excludedCategories = categoryFilters.filter { it.value == CategoryFilterState.EXCLUDED }.keys.map { "categories:-${it.internalName}" } // Note the "-" sign
 
-                if (includedCategories.isNotEmpty()) {
-                    facets.add(includedCategories)
-                }
-                if (excludedCategories.isNotEmpty()) {
-                    excludedCategories.forEach { facets.add(listOf("-$it")) }
-                }
+                    if (includedCategories.isNotEmpty()) {
+                        facets.add(includedCategories)
+                    }
+                    if (excludedCategories.isNotEmpty()) {
+                        excludedCategories.forEach { facets.add(listOf(it)) }
+                    }
 
-                val facetsJsonString = "[${facets.joinToString(",") { "[\"${it.joinToString("\",\"")}\"]" }}]"
+                    val facetsJsonString = "[${facets.joinToString(",") { "[\"${it.joinToString("\",\"")}\"]" }}]"
 
-                val result = modrinthApi.search(searchQuery, facetsJsonString)
-                withContext(Dispatchers.Main) {
-                    searchResult = result
-                }
-            } catch (e: Exception) {
-                e.printStackTrace() // Handle error
-            } finally {
-                withContext(Dispatchers.Main) {
-                    isLoading = false
+                    val result = modrinthApi.search(searchQuery, facetsJsonString)
+                    withContext(Dispatchers.Main) {
+                        searchResult = result
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        snackbarHostState.showSnackbar("Ошибка поиска: ${e.message}")
+                    }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        isLoading = false
+                    }
                 }
             }
         }
@@ -262,13 +273,26 @@ fun ModificationsScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Поиск...") },
-                        modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
-                        singleLine = true
-                    )
+                    AnimatedContent(targetState = selectedProject) { project ->
+                        if (project == null) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                placeholder = { Text("Поиск...") },
+                                modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
+                                singleLine = true
+                            )
+                        } else {
+                            Text(project.title)
+                        }
+                    }
+                },
+                navigationIcon = {
+                    AnimatedVisibility(visible = selectedProject != null) {
+                        IconButton(onClick = { selectedProject = null }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
@@ -310,41 +334,36 @@ fun ModificationsScreen(
                         LazyColumn(modifier = Modifier.weight(1f)) {
                             items(ModrinthCategory.entries) { category ->
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().clickable {
+                                        val currentState = categoryFilters[category]
+                                        val nextState = when (currentState) {
+                                            null -> CategoryFilterState.INCLUDED
+                                            CategoryFilterState.INCLUDED -> CategoryFilterState.EXCLUDED
+                                            CategoryFilterState.EXCLUDED -> null
+                                        }
+                                        if (nextState == null) {
+                                            categoryFilters.remove(category)
+                                        } else {
+                                            categoryFilters[category] = nextState
+                                        }
+                                    },
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(category.displayName)
-                                    Row {
-                                        IconButton(
-                                            onClick = {
-                                                if (categoryFilters[category] == CategoryFilterState.INCLUDED) {
-                                                    categoryFilters.remove(category)
-                                                } else {
-                                                    categoryFilters[category] = CategoryFilterState.INCLUDED
-                                                }
-                                            }
-                                        ) {
-                                            Icon(
+                                    Text(category.displayName, modifier = Modifier.weight(1f))
+                                    AnimatedContent(targetState = categoryFilters[category]) { state ->
+                                        when (state) {
+                                            CategoryFilterState.INCLUDED -> Icon(
                                                 Icons.Default.Check,
-                                                contentDescription = "Включить",
-                                                tint = if (categoryFilters[category] == CategoryFilterState.INCLUDED) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                                                contentDescription = "Включено",
+                                                tint = MaterialTheme.colorScheme.primary
                                             )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                if (categoryFilters[category] == CategoryFilterState.EXCLUDED) {
-                                                    categoryFilters.remove(category)
-                                                } else {
-                                                    categoryFilters[category] = CategoryFilterState.EXCLUDED
-                                                }
-                                            }
-                                        ) {
-                                            Icon(
+                                            CategoryFilterState.EXCLUDED -> Icon(
                                                 Icons.Default.Close,
-                                                contentDescription = "Исключить",
-                                                tint = if (categoryFilters[category] == CategoryFilterState.EXCLUDED) MaterialTheme.colorScheme.error else LocalContentColor.current
+                                                contentDescription = "Исключено",
+                                                tint = MaterialTheme.colorScheme.error
                                             )
+                                            null -> Spacer(Modifier.size(24.dp)) // Placeholder for alignment
                                         }
                                     }
                                 }
@@ -361,7 +380,6 @@ fun ModificationsScreen(
                             ModificationDetails(
                                 project = project,
                                 projectVersions = projectVersions,
-                                onBack = { selectedProject = null },
                                 onInstallClick = { version ->
                                     if (selectedType == ModificationType.MODPACKS) {
                                         // Запускаем установку и сразу переключаемся
@@ -390,10 +408,14 @@ fun ModificationsScreen(
                                                         selectedProject = fullProject
                                                         projectVersions = versions
                                                     }
-                                                } catch (_: Exception) {
-                                                    // handle error
+                                                } catch (e: Exception) {
+                                                    withContext(Dispatchers.Main) {
+                                                        snackbarHostState.showSnackbar("Ошибка загрузки проекта: ${e.message}")
+                                                    }
                                                 } finally {
-                                                    isLoadingProject = false
+                                                    withContext(Dispatchers.Main) {
+                                                        isLoadingProject = false
+                                                    }
                                                 }
                                             }
                                         }
@@ -418,15 +440,21 @@ fun ModificationsScreen(
                     onDismiss = { versionToInstall = null },
                     onInstall = { build ->
                         scope.launch {
-                            val fileToDownload = version.files.firstOrNull { it.primary } ?: version.files.first()
-                            val destinationDir = File(build.installPath, selectedType.installDir)
-                            val destinationFile = File(destinationDir, fileToDownload.filename)
-                            val task = DownloadManager.startTask("Скачивание ${version.name}")
+                            try {
+                                val fileToDownload = version.files.firstOrNull { it.primary } ?: version.files.first()
+                                val destinationDir = File(build.installPath, selectedType.installDir)
+                                val destinationFile = File(destinationDir, fileToDownload.filename)
+                                val task = DownloadManager.startTask("Скачивание ${version.name}")
 
-                            modificationDownloader.download(fileToDownload, destinationFile) { progress, status ->
-                                DownloadManager.updateTask(task.id, progress, status)
+                                modificationDownloader.download(fileToDownload, destinationFile) { progress, status ->
+                                    DownloadManager.updateTask(task.id, progress, status)
+                                }
+                                snackbarHostState.showSnackbar("Загрузка '${version.name}' началась.")
+                            } catch (e: Exception) {
+                                snackbarHostState.showSnackbar("Ошибка установки: ${e.message}")
+                            } finally {
+                                versionToInstall = null
                             }
-                            versionToInstall = null
                         }
                     }
                 )
@@ -500,7 +528,7 @@ fun ModificationsScreen(
 
 enum class ModificationType(
     val displayName: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val icon: ImageVector,
     val projectType: String,
     val installDir: String
 ) {

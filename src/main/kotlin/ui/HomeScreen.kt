@@ -148,6 +148,14 @@ private fun formatBuildVersion(build: MinecraftBuild): String {
             val parts = build.version.split("-forge-")
             if (parts.size == 2) "${parts[0]} - ${parts[1]}" else build.version
         }
+        BuildType.QUILT -> {
+            val parts = build.version.split("-quilt-")
+            if (parts.size == 2) "${parts[0]} - ${parts[1]}" else build.version
+        }
+        BuildType.NEOFORGE -> {
+            val parts = build.version.split("-neoforge-")
+            if (parts.size == 2) "${parts[0]} - ${parts[1]}" else build.version
+        }
     }
 }
 

@@ -44,6 +44,11 @@ class PathManager(private val rootDir: Path) {
      */
     fun getNativesDir(build: MinecraftBuild): Path = Paths.get(build.installPath).resolve("natives")
 
+    /**
+     * Возвращает путь к папке с фонами.
+     */
+    fun getBackgroundsDir(): Path = getAppDataDirectory().resolve("backgrounds")
+
 
     /**
      * Проверяет, нужно ли запускать мастер первоначальной настройки.
@@ -63,6 +68,7 @@ class PathManager(private val rootDir: Path) {
         Files.createDirectories(getGlobalAssetsDir())
         Files.createDirectories(getCacheDir())
         Files.createDirectories(getAppDataDirectory().resolve("jdks"))
+        Files.createDirectories(getBackgroundsDir())
     }
 
     companion object {

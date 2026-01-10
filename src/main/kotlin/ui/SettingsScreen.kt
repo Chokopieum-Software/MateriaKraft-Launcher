@@ -10,6 +10,7 @@ package ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
@@ -19,13 +20,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import funlauncher.AppSettings
 import funlauncher.NavPanelPosition
 import funlauncher.Theme
 import openUri
+import java.io.File
 import java.net.URI
 import java.util.Properties
 
@@ -34,6 +41,8 @@ object AppInfo {
     val buildNumber: String
     val buildSource: String
     val gradleVersion: String
+    val osInfo: String
+
     init {
         val props = Properties()
         props.load(this.javaClass.classLoader.getResourceAsStream("app.properties"))
@@ -41,6 +50,28 @@ object AppInfo {
         buildNumber = props.getProperty("buildNumber")
         buildSource = props.getProperty("buildSource", "Unknown")
         gradleVersion = props.getProperty("gradleVersion", "N/A")
+        osInfo = retrieveOsInfo()
+    }
+
+    private fun retrieveOsInfo(): String {
+        val osName = System.getProperty("os.name")
+        val osArch = System.getProperty("os.arch")
+        if (osName.startsWith("Linux")) {
+            return try {
+                val osReleaseFile = File("/etc/os-release")
+                if (osReleaseFile.exists()) {
+                    val properties = Properties()
+                    properties.load(osReleaseFile.inputStream())
+                    val prettyName = properties.getProperty("PRETTY_NAME", osName)
+                    "$prettyName ($osArch)"
+                } else {
+                    "$osName ($osArch)"
+                }
+            } catch (e: Exception) {
+                "$osName ($osArch)"
+            }
+        }
+        return "$osName ($osArch)"
     }
 }
 
@@ -193,57 +224,105 @@ private fun LaunchSettings(
 
 @Composable
 private fun AboutScreen() {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Materia Launcher",
-            style = MaterialTheme.typography.headlineLarge,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Version: ${AppInfo.version} (Build ${AppInfo.buildNumber})",
-            style = MaterialTheme.typography.labelLarge,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = "Source: ${AppInfo.buildSource} | Gradle: ${AppInfo.gradleVersion}",
-            style = MaterialTheme.typography.labelMedium,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(24.dp))
+    val asciiArt = """
+   /'\_/`\          /\ \__                __             /\ \                              /\ \                     
+/\      \     __  \ \ ,_\    __   _ __ /\_\     __     \ \ \         __     __  __    ___\ \ \___      __   _ __  
+\ \ \__\ \  /'__`\ \ \ \/  /'__`\/\`'__\/\ \  /'__`\    \ \ \  __  /'__`\  /\ \/\ \  /'___\ \  _ `\  /'__`\/\`'__\
+ \ \ \_/\ \/\ \L\.\_\ \ \_/\  __/\ \ \/ \ \ \/\ \L\.\_   \ \ \L\ \/\ \L\.\_\ \ \_\ \/\ \__/\ \ \ \ \/\  __/\ \ \/ 
+  \ \_\\ \_\ \__/.\_\\ \__\ \____\\ \_\  \ \_\ \__/.\_\   \ \____/\ \__/.\_\\ \____/\ \____\\ \_\ \_\ \____\\ \_\ 
+   \/_/ \/_/\/__/\/_/ \/__/\/____/ \/_/   \/_/\/__/\/_/    \/___/  \/__/\/_/ \/___/  \/____/ \/_/\/_/\/____/ \/_/ 
+""".trimIndent()
 
-        Text(
-            text = "Chokopieum Software 2025-2026",
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        TextButton(onClick = {
-            openUri(URI("https://github.com/Chokopieum-Software/MateriaKraft-Launcher"))
-        }) {
-            Text("GitHub")
+    val infoItems = mapOf(
+        "Version" to "${AppInfo.version} (Build ${AppInfo.buildNumber})",
+        "Source" to AppInfo.buildSource,
+        "Gradle" to AppInfo.gradleVersion,
+        "OS" to AppInfo.osInfo,
+        "Author" to "Chokopieum Software 2025-2026",
+        "GitHub" to "https://github.com/Chokopieum-Software/MateriaKraft-Launcher"
+    )
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color(0xFF1E1E1E), // Dark console background
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            val promptColor = Color(0xFF6A9FB5)
+            val commandColor = Color(0xFFC586C0)
+            val textColor = Color(0xFFCE9178)
+            val keyColor = Color(0xFF9CDCFE)
+
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(style = SpanStyle(color = promptColor)) {
+                        append("user@materiakraft")
+                    }
+                    withStyle(style = SpanStyle(color = textColor)) {
+                        append(":~$ ")
+                    }
+                    withStyle(style = SpanStyle(color = commandColor)) {
+                        append("materia --info")
+                    }
+                },
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                text = asciiArt,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            infoItems.forEach { (key, value) ->
+                Row {
+                    Text(
+                        text = "${key.padEnd(10)}: ",
+                        fontFamily = FontFamily.Monospace,
+                        color = keyColor,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    if (key == "GitHub") {
+                        TextButton(onClick = { openUri(URI(value)) }, contentPadding = PaddingValues(0.dp)) {
+                            Text(
+                                text = value,
+                                fontFamily = FontFamily.Monospace,
+                                color = textColor,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = value,
+                            fontFamily = FontFamily.Monospace,
+                            color = textColor,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            Text(
+                text = "LEGAL: NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
+                fontFamily = FontFamily.Monospace,
+                color = Color.Gray,
+                style = MaterialTheme.typography.labelSmall
+            )
         }
-        Spacer(Modifier.height(16.dp))
-        Text(
-            text = "OS: ${System.getProperty("os.name")} (${System.getProperty("os.arch")})",
-            style = MaterialTheme.typography.labelSmall,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(32.dp))
-        Text(
-            text = "НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.",
-            style = MaterialTheme.typography.labelSmall,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 16.dp),
-            color = MaterialTheme.colorScheme.onSurface
-        )
     }
 }

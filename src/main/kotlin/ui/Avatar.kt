@@ -27,6 +27,7 @@ import io.ktor.client.request.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
+import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 
 object ImageLoader {
@@ -50,7 +51,7 @@ object ImageLoader {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                e.printStackTrace()
+                println("Failed to load image from $url: ${e.message}")
                 null
             }
         }

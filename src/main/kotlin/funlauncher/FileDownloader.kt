@@ -172,6 +172,8 @@ class FileDownloader(
     private fun getGameVersionForJar(build: MinecraftBuild): String = when (build.type) {
         BuildType.FABRIC -> build.version.split("-fabric-").first()
         BuildType.FORGE -> build.version.split("-forge-").first()
+        BuildType.QUILT -> build.version.split("-quilt-").first()
+        BuildType.NEOFORGE -> build.version.split("-neoforge-").first()
         else -> versionInfo.id
     }
 

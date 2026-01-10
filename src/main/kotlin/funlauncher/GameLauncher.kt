@@ -218,6 +218,8 @@ class GameLauncher(
         val gameVersionForJar = when (build.type) {
             BuildType.FABRIC -> build.version.split("-fabric-").first()
             BuildType.FORGE -> build.version.split("-forge-").first()
+            BuildType.QUILT -> build.version.split("-quilt-").first()
+            BuildType.NEOFORGE -> build.version.split("-neoforge-").first()
             else -> versionInfo.id
         }
         val clientJarPath = globalVersionsDir.resolve(gameVersionForJar).resolve("$gameVersionForJar.jar")
