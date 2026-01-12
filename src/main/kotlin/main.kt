@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.*
 import com.sun.management.OperatingSystemMXBean
@@ -632,6 +633,7 @@ fun main() {
         var appState by remember { mutableStateOf<AppState?>(null) }
         var isContentReady by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
+        val icon = painterResource("logo.ico")
 
         // Ленивая инициализация менеджеров
         val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
@@ -683,6 +685,7 @@ fun main() {
             transparent = true,
             alwaysOnTop = true,
             visible = !isContentReady,
+            icon = icon,
             state = rememberWindowState(
                 width = 400.dp,
                 height = 200.dp,
@@ -700,6 +703,7 @@ fun main() {
                     onCloseRequest = ::exitApplication,
                     title = "Materia - Мастер настройки",
                     visible = isContentReady,
+                    icon = icon,
                     state = rememberWindowState(width = 600.dp, height = 700.dp, position = WindowPosition(Alignment.Center))
                 ) {
                     AnimatedAppTheme(wizardTheme) {
@@ -729,6 +733,7 @@ fun main() {
                         },
                         title = "Materia",
                         visible = isContentReady,
+                        icon = icon,
                         state = rememberWindowState(width = 1024.dp, height = 768.dp)
                     ) {
                         App(
