@@ -29,7 +29,21 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.*
 import com.sun.management.OperatingSystemMXBean
-import funlauncher.*
+import funlauncher.AppSettings
+import funlauncher.MinecraftBuild
+import funlauncher.NavPanelPosition
+import funlauncher.SettingsManager
+import funlauncher.Theme
+import funlauncher.auth.Account
+import funlauncher.auth.AccountManager
+import funlauncher.game.MinecraftInstaller
+import funlauncher.managers.BuildManager
+import funlauncher.managers.CacheManager
+import funlauncher.managers.JavaManager
+import funlauncher.managers.PathManager
+import funlauncher.net.DownloadManager
+import funlauncher.net.JavaDownloader
+import funlauncher.net.ModrinthApi
 import kotlinx.coroutines.*
 import ui.*
 import java.awt.Desktop
@@ -466,16 +480,11 @@ fun App(
         }
         if (showAccountScreen) {
             AccountScreen(
-                accounts = accounts,
                 accountManager = accountManager,
                 onDismiss = { showAccountScreen = false },
                 onAccountSelected = {
                     currentAccount = it
                     showAccountScreen = false
-                },
-                onAccountsUpdated = {
-                    accounts = accountManager.getAccounts()
-                    currentAccount = accounts.firstOrNull()
                 }
             )
         }
@@ -601,8 +610,22 @@ data class AppState(
 )
 
 fun main() {
-    // Принудительно включаем Vulkan для лучшей производительности анимаций
-    // System.setProperty("skiko.renderApi", "VULKAN")
+    // Выбираем API рендеринга: Vulkan если доступен, иначе OpenGL, чтобы избежать проблем с DirectX.
+    val os = System.getProperty("os.name").lowercase()
+    if (!os.contains("mac")) { // На macOS используется Metal по умолчанию
+        val renderApi = try {
+            // Попытка загрузки класса вызовет его инициализацию,
+            // которая включает загрузку нативных библиотек.
+            // Если драйвер Vulkan отсутствует, это вызовет ошибку.
+            Class.forName("org.jetbrains.skiko.vulkan.VulkanWindow")
+            "VULKAN"
+        } catch (e: Throwable) {
+            // Ловим Throwable, чтобы перехватить ClassNotFoundException, UnsatisfiedLinkError и другие.
+            "OPENGL"
+        }
+        System.setProperty("skiko.renderApi", renderApi)
+        println("Using render API: $renderApi")
+    }
 
     application {
         var currentScreen by remember { mutableStateOf<Screen>(Screen.Splash) }

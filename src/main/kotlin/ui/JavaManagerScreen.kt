@@ -21,6 +21,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import funlauncher.*
+import funlauncher.managers.JavaManager
+import funlauncher.net.DownloadManager
+import funlauncher.net.JavaDownloader
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,7 +102,7 @@ fun JavaManagerWindow(
                         Text(status, style = MaterialTheme.typography.labelSmall)
                         Button(
                             onClick = { showInstallDialog = true },
-                            enabled = !DownloadManager.tasks.isNotEmpty(),
+                            enabled = DownloadManager.tasks.isEmpty(),
                         ) {
                             Text("Установить JDK")
                         }

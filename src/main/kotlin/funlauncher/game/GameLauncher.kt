@@ -6,8 +6,13 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.game
 
+import funlauncher.BuildType
+import funlauncher.GameConsole
+import funlauncher.MinecraftBuild
+import funlauncher.auth.Account
+import funlauncher.managers.PathManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File

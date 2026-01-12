@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.net
 
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*

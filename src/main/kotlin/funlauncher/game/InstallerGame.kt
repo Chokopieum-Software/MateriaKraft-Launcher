@@ -6,8 +6,14 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.game
 
+import funlauncher.MinecraftBuild
+import funlauncher.auth.Account
+import funlauncher.managers.BuildManager
+import funlauncher.managers.PathManager
+import funlauncher.net.DownloadManager
+import funlauncher.net.FileDownloader
 import io.ktor.client.plugins.*
 import java.net.ConnectException
 import java.net.UnknownHostException

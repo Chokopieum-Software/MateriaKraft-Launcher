@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.net
 
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateListOf

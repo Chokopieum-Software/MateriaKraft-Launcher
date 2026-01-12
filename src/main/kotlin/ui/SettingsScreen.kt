@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import funlauncher.AppSettings
@@ -42,15 +41,25 @@ object AppInfo {
     val buildSource: String
     val gradleVersion: String
     val osInfo: String
+    val renderApi: String
 
     init {
         val props = Properties()
-        props.load(this.javaClass.classLoader.getResourceAsStream("app.properties"))
-        version = props.getProperty("version")
-        buildNumber = props.getProperty("buildNumber")
-        buildSource = props.getProperty("buildSource", "Unknown")
+        try {
+            this.javaClass.classLoader.getResourceAsStream("app.properties").use { stream ->
+                if (stream != null) {
+                    props.load(stream)
+                }
+            }
+        } catch (e: Exception) {
+            // Файл может отсутствовать в IDE, это нормально
+        }
+        version = props.getProperty("version", "Dev")
+        buildNumber = props.getProperty("buildNumber", "Local")
+        buildSource = props.getProperty("buildSource", "IDE")
         gradleVersion = props.getProperty("gradleVersion", "N/A")
         osInfo = retrieveOsInfo()
+        renderApi = System.getProperty("skiko.renderApi", "Unknown")
     }
 
     private fun retrieveOsInfo(): String {
@@ -233,11 +242,17 @@ private fun AboutScreen() {
    \/_/ \/_/\/__/\/_/ \/__/\/____/ \/_/   \/_/\/__/\/_/    \/___/  \/__/\/_/ \/___/  \/____/ \/_/\/_/\/____/ \/_/ 
 """.trimIndent()
 
+    val versionText = when (AppInfo.version) {
+        "Beta", "Canary", "Develop Build", "Community Build" -> "${AppInfo.version} (Build ${AppInfo.buildNumber})"
+        else -> AppInfo.version // Для тегов (релизов) показываем только версию
+    }
+
     val infoItems = mapOf(
-        "Version" to "${AppInfo.version} (Build ${AppInfo.buildNumber})",
+        "Version" to versionText,
         "Source" to AppInfo.buildSource,
         "Gradle" to AppInfo.gradleVersion,
         "OS" to AppInfo.osInfo,
+        "Render API" to AppInfo.renderApi,
         "Author" to "Chokopieum Software 2025-2026",
         "GitHub" to "https://github.com/Chokopieum-Software/MateriaKraft-Launcher"
     )

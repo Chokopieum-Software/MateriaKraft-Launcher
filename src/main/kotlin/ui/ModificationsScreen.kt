@@ -25,6 +25,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.mikepenz.markdown.m3.Markdown
 import funlauncher.*
+import funlauncher.game.VersionMetadataFetcher
+import funlauncher.managers.BuildManager
+import funlauncher.managers.CacheManager
+import funlauncher.managers.PathManager
+import funlauncher.modpack.ModpackInstaller
+import funlauncher.net.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

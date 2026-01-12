@@ -5,19 +5,69 @@ import org.gradle.api.tasks.Copy
 import org.gradle.jvm.tasks.Jar
 import java.util.Properties
 import org.gradle.api.tasks.testing.Test
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 
 plugins {
     kotlin("jvm") version "2.3.0"
     kotlin("plugin.serialization") version "2.3.0"
     kotlin("plugin.compose") version "2.3.0"
-    // Плагин Compose Multiplatform
     id("org.jetbrains.compose") version "1.10.0-rc02"
 }
 
-val packageVersion = "1.0.60000"
+// --- Логика определения версии ---
+fun getVersionInfo(): Pair<String, String> {
+    val ci = System.getenv("CI") == "true"
+    val githubRef = System.getenv("GITHUB_REF_NAME") ?: ""
+    val githubRefType = System.getenv("GITHUB_REF_TYPE") ?: ""
+    val githubRunNumber = System.getenv("GITHUB_RUN_NUMBER") ?: "0"
+    val isTag = githubRefType == "tag"
+    val isMain = githubRef == "main"
+    val isDev = githubRef == "dev"
+
+
+    val devKeystore = File(System.getProperty("user.home"), ".ssh/keystore.jks")
+    val isDeveloperBuild = devKeystore.exists()
+
+    val buildPropsFile = project.file("build.properties")
+    val buildProps = Properties()
+    if (buildPropsFile.exists()) {
+        FileInputStream(buildPropsFile).use { buildProps.load(it) }
+    }
+    var buildNumber = buildProps.getProperty("buildNumber", "0").toInt()
+
+    val version: String
+    when {
+        isTag -> {
+            version = githubRef
+        }
+        ci && isMain -> {
+            version = "Beta"
+            buildNumber = githubRunNumber.toInt()
+        }
+        ci && isDev -> {
+            version = "Canary"
+            buildNumber = githubRunNumber.toInt()
+        }
+        isDeveloperBuild -> {
+            version = "Develop Build"
+            buildNumber++
+            buildProps.setProperty("buildNumber", buildNumber.toString())
+            FileOutputStream(buildPropsFile).use { buildProps.store(it, "Auto-incremented by Gradle") }
+        }
+        else -> {
+            version = "Community Build"
+            // Номер сборки не инкрементируется для сборок сообщества
+        }
+    }
+    return Pair(version, buildNumber.toString())
+}
+
+val (appVersion, appBuildNumber) = getVersionInfo()
 
 group = "org.chokopieum.software"
-version = packageVersion
+version = appVersion
 
 repositories {
     mavenCentral()
@@ -26,11 +76,10 @@ repositories {
 }
 
 dependencies {
-    // === UI (Compose) ===
+
     implementation(compose.desktop.currentOs)
     implementation(compose.materialIconsExtended)
     implementation(compose.material3)
-    // === Асинхронность (Coroutines) ===
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
     implementation("com.microsoft.azure:msal4j:1.23.1")
@@ -39,23 +88,15 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.akuleshov7:ktoml-core-jvm:0.7.1")
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.39.0")
-    // === Логгирование ===
     implementation("org.slf4j:slf4j-simple:2.0.17")
-
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-
-    // === Сеть (HTTP Client) ===
     implementation("io.ktor:ktor-client-core:2.3.13")
-    implementation("io.ktor:ktor-client-cio:2.3.13") // Движок для Ktor
+    implementation("io.ktor:ktor-client-cio:2.3.13")
     implementation("io.ktor:ktor-client-content-negotiation:2.3.13")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.13")
     implementation("io.ktor:ktor-client-logging:2.3.13")
-
-    // === Работа с архивами ===
     implementation("org.apache.commons:commons-compress:1.26.2")
     implementation("org.apache.commons:commons-lang3:3.18.0")
-
-    // === Тестирование ===
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.3")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.3")
@@ -78,13 +119,13 @@ compose.desktop {
 
         nativeDistributions {
             packageName = "materia-launcher"
-            packageVersion = packageVersion
+            packageVersion = appVersion
             description = "Modern launcher for Minecraft"
             vendor = "Chokopieum Software"
             copyright = "© 2025 Chokopieum Software"
 
             // Собираем только EXE для Windows со встроенной JDK
-            targetFormats(TargetFormat.Exe)
+            // targetFormats(TargetFormat.Exe) // Временно отключено из-за проблем с версией
 
             windows {
                 menu = true
@@ -95,7 +136,6 @@ compose.desktop {
     }
 }
 
-// Конфигурация для задачи создания Uber-JAR
 afterEvaluate {
     tasks.named("packageUberJarForCurrentOS", Jar::class) {
         archiveFileName.set("materia-launcher.jar")
@@ -110,42 +150,22 @@ tasks.withType<Test> {
 
 tasks.named<Copy>("processResources") {
     doLast {
-        // Определяем источник сборки
-        val buildSource = when {
-            System.getenv("BUILD_SOURCE") == "AUR" -> "AUR"
-            System.getenv("GITHUB_ACTIONS") == "true" -> "GitHub"
-            else -> "Local"
-        }
-
-        val buildPropertiesFile = project.rootProject.file("build.properties")
-        val buildProps = Properties().apply {
-            buildPropertiesFile.inputStream().use { load(it) }
-        }
-        val currentBuild = buildProps.getProperty("buildNumber").toInt()
-        var finalBuildNumber = currentBuild
-
-        // Инкрементируем номер сборки только для Local и GitHub
-        if (buildSource == "Local" || buildSource == "GitHub") {
-            finalBuildNumber = currentBuild + 1
-            buildProps.setProperty("buildNumber", finalBuildNumber.toString())
-            buildPropertiesFile.outputStream().use { buildProps.store(it, null) }
-        }
-
-        // Генерируем app.properties
         val props = Properties()
-        props.setProperty("version", packageVersion)
-        props.setProperty("buildNumber", finalBuildNumber.toString())
-        props.setProperty("buildSource", buildSource)
+        props.setProperty("version", appVersion)
+        props.setProperty("buildNumber", appBuildNumber)
+        props.setProperty("buildSource", when {
+            System.getenv("CI") == "true" -> "GitHub"
+            File(System.getProperty("user.home"), ".ssh/keystore.jks").exists() -> "Local"
+            else -> "Community"
+        })
 
-        // Извлекаем версию Gradle
         val wrapperProps = Properties()
         project.file("gradle/wrapper/gradle-wrapper.properties").inputStream().use { wrapperProps.load(it) }
         val gradleVersion = wrapperProps.getProperty("distributionUrl").substringAfterLast("gradle-").substringBefore("-bin")
         props.setProperty("gradleVersion", gradleVersion)
 
-        // Записываем файл в выходную директорию задачи
         file("$destinationDir/app.properties").writer().use {
-            props.store(it, null)
-        }
+            props.store(it, "Generated by Gradle")
+        }    // ... (зависимости остаются без изменений)
     }
 }

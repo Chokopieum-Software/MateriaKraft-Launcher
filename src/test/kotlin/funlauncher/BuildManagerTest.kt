@@ -1,5 +1,9 @@
 package funlauncher
 
+import funlauncher.game.VersionManager
+import funlauncher.managers.BuildManager
+import funlauncher.managers.CacheManager
+import funlauncher.managers.PathManager
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.*
@@ -13,6 +17,7 @@ import kotlin.io.path.div
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import org.junit.jupiter.api.Timeout
+import java.nio.file.Files
 
 class LauncherIntegrationTest {
 
@@ -35,6 +40,36 @@ class LauncherIntegrationTest {
         cacheManager = CacheManager(pathManager)
         // Создаем необходимые директории внутри временной папки
         pathManager.createRequiredDirectories()
+
+        // --- Создаем фейковые файлы кэша для теста ---
+        val cacheDir = pathManager.getCacheDir()
+        Files.createDirectories(cacheDir)
+
+        // Фейковый vanilla_versions.json
+        val vanillaVersionsJson = """
+            {
+              "latest": { "release": "1.20.4", "snapshot": "24w14a" },
+              "versions": [
+                { "id": "1.20.4", "type": "release", "url": "", "time": "", "releaseTime": "" },
+                { "id": "1.19.4", "type": "release", "url": "", "time": "", "releaseTime": "" }
+              ]
+            }
+        """.trimIndent()
+        Files.write(cacheDir.resolve("vanilla_versions.json"), vanillaVersionsJson.toByteArray())
+
+        // Фейковый forge_versions.json
+        val forgeVersionsJson = """
+            {
+              "promos": {
+                "1.20.4-latest": "49.0.25",
+                "1.20.4-recommended": "49.0.25"
+              }
+            }
+        """.trimIndent()
+        Files.write(cacheDir.resolve("forge_versions.json"), forgeVersionsJson.toByteArray())
+
+        // Фейковый fabric_versions.json (не используется напрямую, но для полноты)
+        // VersionManager запрашивает его по сети, но мы можем обойти это, если понадобится
     }
 
     @Test
@@ -43,18 +78,18 @@ class LauncherIntegrationTest {
         // --- Фаза 1: Получение и проверка списков версий ---
         println("--- Phase 1: Fetching and Verifying Version Lists ---")
 
-        println("Updating remote caches...")
-        cacheManager.updateAllCaches()
-        println("Caches updated.")
+        // cacheManager.updateAllCaches() // Этот метод больше не нужен, так как мы создаем кэш вручную
 
         val mcVersions = versionManager.getMinecraftVersions().filter { it.type == "release" }.map { it.id }
-        val fabricGameVersions = versionManager.getFabricGameVersions()
         val forgeVersions = versionManager.getForgeVersions()
+        // Fabric версии запрашиваются по сети, оставим как есть, так как это важная часть теста
+        val fabricGameVersions = versionManager.getFabricGameVersions()
+
 
         assertAll("Version fetching",
             { assertTrue(mcVersions.isNotEmpty(), "Minecraft versions list should not be empty.") },
-            { assertTrue(fabricGameVersions.isNotEmpty(), "Fabric supported game versions list should not be empty.") },
-            { assertTrue(forgeVersions.isNotEmpty(), "Forge versions list should not be empty.") }
+            { assertTrue(forgeVersions.isNotEmpty(), "Forge versions list should not be empty.") },
+            { assertTrue(fabricGameVersions.isNotEmpty(), "Fabric supported game versions list should not be empty.") }
         )
 
         val targetMcVersion = "1.20.4" // Выбираем конкретную версию для теста

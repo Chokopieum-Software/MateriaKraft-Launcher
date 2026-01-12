@@ -25,6 +25,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import funlauncher.*
+import funlauncher.game.*
+import funlauncher.managers.PathManager
 import kotlinx.coroutines.launch
 import java.io.File
 

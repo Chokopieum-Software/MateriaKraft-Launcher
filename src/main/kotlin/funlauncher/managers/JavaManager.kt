@@ -6,30 +6,16 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.managers
 
+import funlauncher.JavaInfo
+import funlauncher.JavaInstallations
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.div
-
-data class JavaInfo(
-    val path: String,
-    val version: Int,
-    val vendor: String,
-    val is64Bit: Boolean,
-    val isManagedByLauncher: Boolean // Флаг, что JRE управляется лаунчером
-) {
-    val displayName: String
-        get() = "Java $version ($vendor, ${if (is64Bit) "64-bit" else "32-bit"})"
-}
-
-data class JavaInstallations(
-    val system: List<JavaInfo>,
-    val launcher: List<JavaInfo>
-)
 
 class JavaManager(pathManager: PathManager) {
     private val jdksDir = pathManager.getAppDataDirectory().resolve("jdks").toFile()

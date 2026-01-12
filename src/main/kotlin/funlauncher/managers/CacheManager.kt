@@ -1,4 +1,4 @@
-package funlauncher
+package funlauncher.managers
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope

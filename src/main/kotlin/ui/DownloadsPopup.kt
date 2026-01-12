@@ -22,7 +22,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
-import funlauncher.DownloadManager
+import funlauncher.net.DownloadManager
+import funlauncher.net.DownloadTask
 
 @Composable
 fun DownloadsPopup(
@@ -75,7 +76,7 @@ fun DownloadsPopup(
 }
 
 @Composable
-private fun DownloadTaskItem(task: funlauncher.DownloadTask) {
+private fun DownloadTaskItem(task: DownloadTask) {
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),

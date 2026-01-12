@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.auth
 
 import com.github.javakeyring.Keyring
 import com.google.gson.Gson

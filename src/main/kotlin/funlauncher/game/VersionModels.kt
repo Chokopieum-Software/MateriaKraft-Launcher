@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.game
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName

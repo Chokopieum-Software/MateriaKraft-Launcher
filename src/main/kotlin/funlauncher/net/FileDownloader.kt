@@ -6,8 +6,15 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.net
 
+import funlauncher.BuildType
+import funlauncher.MinecraftBuild
+import funlauncher.game.AssetIndex
+import funlauncher.game.VersionInfo
+import funlauncher.game.VersionMetadataFetcher
+import funlauncher.managers.BuildManager
+import funlauncher.managers.PathManager
 import io.ktor.client.call.*
 import io.ktor.client.plugins.*
 import io.ktor.client.request.*

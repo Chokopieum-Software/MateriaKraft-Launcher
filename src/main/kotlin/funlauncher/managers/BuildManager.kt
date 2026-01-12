@@ -6,8 +6,10 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.managers
 
+import funlauncher.BuildType
+import funlauncher.MinecraftBuild
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -20,31 +22,6 @@ import java.io.File
 import java.io.InputStream
 import java.nio.file.Path
 import kotlin.io.path.*
-
-@Serializable
-enum class BuildType {
-    VANILLA,
-    FABRIC,
-    FORGE,
-    QUILT,
-    NEOFORGE
-}
-
-@Serializable
-data class MinecraftBuild(
-    val name: String,
-    val version: String,
-    val type: BuildType,
-    val installPath: String,
-    val createdAt: String = java.time.Instant.now().toString(),
-    val imagePath: String? = null, // Путь к обложке
-    // Индивидуальные настройки сборки
-    val javaPath: String? = null,
-    val maxRamMb: Int? = null,
-    val javaArgs: String? = null,
-    val envVars: String? = null,
-    val modloaderVersion: String? = null
-)
 
 @OptIn(ExperimentalPathApi::class)
 class BuildManager(private val pathManager: PathManager) {

@@ -6,10 +6,9 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.auth
 
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+import funlauncher.managers.PathManager
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -32,12 +31,33 @@ class AccountManager(pathManager: PathManager) {
     }
     private var accounts: MutableList<Account> = mutableListOf()
 
+    private fun createDefaultAccounts(): MutableList<Account> {
+        println("Создание файла accounts.json по умолчанию.")
+        return mutableListOf(
+            MicrosoftAccount(
+                username = "YourMicrosoftName",
+                uuid = "123e4567-e89b-12d3-a456-426614174001",
+                accessToken = "dummy_token_for_testing",
+                skinUrl = null,
+                isLicensed = true
+            ),
+            OfflineAccount(
+                username = "OfflinePlayer",
+                uuid = "00000000-0000-0000-0000-000000000000",
+                accessToken = "0",
+                isLicensed = false
+            )
+        )
+    }
+
     fun loadAccounts(): List<Account> {
         println("--- Загрузка аккаунтов ---")
         println("Путь к файлу: ${accountsFile.absolutePath}")
 
         if (!accountsFile.exists()) {
-            println("Файл accounts.json не найден.")
+            println("Файл accounts.json не найден. Создание файла по умолчанию.")
+            accounts = createDefaultAccounts()
+            saveAccounts()
             return accounts
         }
 
@@ -52,47 +72,20 @@ class AccountManager(pathManager: PathManager) {
         println("Содержимое файла:\n$content")
 
         if (content.isBlank()) {
-            println("Файл пуст.")
+            println("Файл пуст. Создание файла по умолчанию.")
+            accounts = createDefaultAccounts()
+            saveAccounts()
             return accounts
         }
 
         try {
-            // Пытаемся декодировать напрямую
             accounts = json.decodeFromString<MutableList<Account>>(content)
-            println("Аккаунты успешно загружены стандартным парсером.")
+            println("Аккаунты успешно загружены.")
         } catch (e: SerializationException) {
-            println("Ошибка десериализации kotlinx.serialization, попытка миграции через Gson...")
-            e.printStackTrace() // Показываем ошибку kotlinx
-            try {
-                // Если не удалось, используем Gson для миграции
-                val gson = Gson()
-                val type = object : TypeToken<MutableList<MutableMap<String, Any?>>>() {}.type
-                val rawAccounts = gson.fromJson<MutableList<MutableMap<String, Any?>>>(content, type)
-
-                rawAccounts.forEach { acc ->
-                    when (acc["type"]) {
-                        "funlauncher.MicrosoftAccount" -> {
-                            acc.putIfAbsent("isLicensed", true)
-                        }
-                        "funlauncher.OfflineAccount" -> {
-                            acc.putIfAbsent("uuid", "00000000-0000-0000-0000-000000000000")
-                            acc.putIfAbsent("accessToken", "0")
-                            acc.putIfAbsent("isLicensed", false)
-                        }
-                    }
-                }
-
-                val migratedContent = gson.toJson(rawAccounts)
-                println("Мигрированное содержимое:\n$migratedContent")
-                accounts = json.decodeFromString<MutableList<Account>>(migratedContent)
-                // Сохраняем исправленный файл
-                saveAccounts()
-                println("Миграция и загрузка аккаунтов прошли успешно.")
-            } catch (migrationError: Exception) {
-                println("Критическая ошибка миграции аккаунтов:")
-                migrationError.printStackTrace()
-                accounts = mutableListOf()
-            }
+            println("Ошибка десериализации kotlinx.serialization. Создание файла по умолчанию.")
+            e.printStackTrace()
+            accounts = createDefaultAccounts()
+            saveAccounts()
         } catch (e: Exception) {
             println("Произошла неожиданная ошибка при загрузке аккаунтов:")
             e.printStackTrace()

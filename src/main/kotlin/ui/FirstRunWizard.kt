@@ -14,7 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import funlauncher.AccountManager
+import funlauncher.auth.AccountManager
 import funlauncher.AppSettings
 import funlauncher.NavPanelPosition
 import funlauncher.Theme

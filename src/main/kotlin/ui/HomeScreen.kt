@@ -38,9 +38,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import funlauncher.Account
 import funlauncher.BuildType
 import funlauncher.MinecraftBuild
+import funlauncher.auth.Account
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

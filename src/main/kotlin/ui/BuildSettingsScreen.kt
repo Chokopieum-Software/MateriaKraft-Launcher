@@ -36,7 +36,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.akuleshov7.ktoml.Toml
-import funlauncher.*
+import funlauncher.AppSettings
+import funlauncher.BuildType
+import funlauncher.JavaInfo
+import funlauncher.MinecraftBuild
+import funlauncher.game.*
+import funlauncher.managers.BuildManager
+import funlauncher.managers.JavaManager
+import funlauncher.managers.PathManager
 import kotlinx.coroutines.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json

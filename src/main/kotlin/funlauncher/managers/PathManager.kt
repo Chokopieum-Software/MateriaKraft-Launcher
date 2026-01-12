@@ -6,8 +6,9 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package funlauncher
+package funlauncher.managers
 
+import funlauncher.MinecraftBuild
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths

@@ -29,29 +29,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import funlauncher.Account
-import funlauncher.AccountManager
-import funlauncher.MicrosoftAccount
-import funlauncher.OfflineAccount
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import funlauncher.auth.Account
+import funlauncher.auth.AccountManager
+import funlauncher.auth.MicrosoftAccount
+import funlauncher.auth.OfflineAccount
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountScreen(
-    accounts: List<Account>,
     accountManager: AccountManager,
     onDismiss: () -> Unit,
-    onAccountSelected: (Account) -> Unit,
-    onAccountsUpdated: () -> Unit
+    onAccountSelected: (Account) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    val viewModel = remember { AccountViewModel(accountManager, coroutineScope) }
+    val accounts by viewModel.accounts.collectAsState()
+    val isLoggingIn by viewModel.isLoggingIn.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
+
     var showAddAccountTypeDialog by remember { mutableStateOf(false) }
     var showAddOfflineAccountDialog by remember { mutableStateOf(false) }
     var accountToDelete by remember { mutableStateOf<Account?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    val coroutineScope = rememberCoroutineScope()
-    var isLoggingIn by remember { mutableStateOf(false) }
     var showBrowserLoginDialog by remember { mutableStateOf(false) }
 
     val hasLicensedAccount = remember(accounts) { accounts.any { it.isLicensed } }
@@ -137,20 +135,9 @@ fun AccountScreen(
             confirmButton = {
                 Button(onClick = {
                     showAddAccountTypeDialog = false
-                    isLoggingIn = true
                     showBrowserLoginDialog = true
-                    coroutineScope.launch {
-                        val success = withContext(Dispatchers.IO) {
-                            accountManager.loginWithMicrosoft()
-                        }
-                        showBrowserLoginDialog = false
-                        if (success) {
-                            onAccountsUpdated()
-                        } else {
-                            errorMessage = "Не удалось войти через Microsoft."
-                        }
-                        isLoggingIn = false
-                    }
+                    viewModel.loginWithMicrosoft()
+                    showBrowserLoginDialog = false
                 }) { Text("Microsoft") }
             },
             dismissButton = {
@@ -186,13 +173,9 @@ fun AccountScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    val newAccount = OfflineAccount(username)
-                    if (accountManager.addAccount(newAccount)) {
-                        onAccountsUpdated()
+                    viewModel.addOfflineAccount(username)
+                    if (errorMessage == null) {
                         showAddOfflineAccountDialog = false
-                        errorMessage = null
-                    } else {
-                        errorMessage = "Не удалось добавить аккаунт. Возможно, аккаунт с таким именем уже существует или у вас нет лицензионного аккаунта."
                     }
                 }) { Text("Добавить") }
             },
@@ -210,8 +193,7 @@ fun AccountScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        accountManager.deleteAccount(account)
-                        onAccountsUpdated()
+                        viewModel.deleteAccount(account)
                         accountToDelete = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
@@ -225,11 +207,11 @@ fun AccountScreen(
 
     errorMessage?.let {
         AlertDialog(
-            onDismissRequest = { errorMessage = null },
+            onDismissRequest = { viewModel.clearErrorMessage() },
             title = { Text("Ошибка") },
             text = { Text(it) },
             confirmButton = {
-                Button(onClick = { errorMessage = null }) { Text("OK") }
+                Button(onClick = { viewModel.clearErrorMessage() }) { Text("OK") }
             }
         )
     }

@@ -1,4 +1,4 @@
-package funlauncher
+package funlauncher.net
 
 import io.ktor.client.call.*
 import io.ktor.client.plugins.*

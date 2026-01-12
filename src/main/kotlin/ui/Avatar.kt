@@ -17,9 +17,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.res.painterResource
-import funlauncher.Account
-import funlauncher.MicrosoftAccount
-import funlauncher.OfflineAccount
+import funlauncher.auth.Account
+import funlauncher.auth.MicrosoftAccount
+import funlauncher.auth.OfflineAccount
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
