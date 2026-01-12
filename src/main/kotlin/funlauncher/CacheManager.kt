@@ -1,124 +1,78 @@
-/*
- * Copyright 2025 Chokopieum Software
- *
- * НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.
- * Распространяется по лицензии MIT.
- * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
- */
-
 package funlauncher
 
-import io.ktor.client.call.*
-import io.ktor.client.request.*
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.io.path.readText
-import kotlin.io.path.writeBytes
+import java.io.File
+import java.security.MessageDigest
 
-/**
- * Manages the background caching of version manifests and other remote resources.
- */
-class CacheManager(pathManager: PathManager) {
-    private val client = Network.client
-    private val cacheDir: Path = pathManager.getCacheDir()
-    private val json = Json { ignoreUnknownKeys = true }
+class CacheManager(
+    pathManager: PathManager
+) {
+    private val cacheDir = pathManager.getCacheDir().toFile()
+    val json = Json {
+        prettyPrint = true
+        ignoreUnknownKeys = true
+    }
 
-    private val vanillaManifestUrl = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-    private val fabricLoaderManifestUrl = "https://meta.fabricmc.net/v2/versions/loader"
-    private val quiltLoaderManifestUrl = "https://meta.quiltmc.org/v3/versions/loader"
-    private val neoforgeManifestUrl = "https://maven.neoforged.net/api/maven/versions/releases/net%2Fneoforged%2Fneoforge"
-    private val forgeManifestUrl = "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json"
-
-
-    /**
-     * Updates all remote resources and stores them in the local cache.
-     * Reports progress via the DownloadManager.
-     */
-    suspend fun updateAllCaches() {
-        val task = DownloadManager.startTask("Обновление списков версий")
-        val progress = AtomicReference(0f)
-
-        fun updateProgress(delta: Float, message: String) {
-            val newProgress = progress.accumulateAndGet(delta, Float::plus)
-            DownloadManager.updateTask(task.id, newProgress, message)
+    init {
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
         }
+    }
 
-        try {
-            coroutineScope {
-                val jobs = listOf(
-                    launch {
-                        downloadResource("Vanilla Manifest", vanillaManifestUrl, cacheDir.resolve("vanilla_versions.json"))
-                        updateProgress(0.2f, "Загружен список Vanilla")
-                    },
-                    launch {
-                        downloadResource("Fabric Manifest", fabricLoaderManifestUrl, cacheDir.resolve("fabric_loaders.json"))
-                        updateProgress(0.2f, "Загружен список Fabric")
-                    },
-                    launch {
-                        downloadResource("Quilt Manifest", quiltLoaderManifestUrl, cacheDir.resolve("quilt_loaders.json"))
-                        updateProgress(0.2f, "Загружен список Quilt")
-                    },
-                    launch {
-                        downloadResource("NeoForge Manifest", neoforgeManifestUrl, cacheDir.resolve("neoforge_versions.json"))
-                        updateProgress(0.2f, "Загружен список NeoForge")
-                    },
-                    launch {
-                        downloadResource("Forge Manifest", forgeManifestUrl, cacheDir.resolve("forge_versions.json"))
-                        updateProgress(0.2f, "Загружен список Forge")
-                    }
-                )
-                jobs.joinAll()
+    fun getCacheFile(key: String): File {
+        val hashedKey = sha256(key)
+        return File(cacheDir, "$hashedKey.json")
+    }
+
+    suspend inline fun <reified T> getOrFetch(key: String, crossinline fetcher: suspend () -> T): T? {
+        val cacheFile = getCacheFile(key)
+
+        if (cacheFile.exists()) {
+            try {
+                val cachedData = json.decodeFromString<T>(cacheFile.readText())
+                return cachedData
+            } catch (_: Exception) {
+                // Log error or handle corrupted cache
+                cacheFile.delete()
             }
-            DownloadManager.updateTask(task.id, 1.0f, "Списки версий обновлены")
-        } catch (e: CancellationException) {
-            println("[CacheManager] Cache update was cancelled.")
-            DownloadManager.updateTask(task.id, 1.0f, "Обновление отменено")
-            throw e // Re-throw CancellationException
-        } catch (e: Exception) {
-            println("[CacheManager] Failed to update caches: ${e.message}")
-            DownloadManager.updateTask(task.id, 1.0f, "Ошибка обновления кэша")
-        } finally {
-            // Keep the task visible for a moment before ending it
-            kotlinx.coroutines.delay(2000)
-            DownloadManager.endTask(task.id)
         }
-    }
-
-    private suspend fun downloadResource(name: String, url: String, destination: Path) {
-        try {
-            println("[CacheManager] Updating $name from $url")
-            val data = client.get(url).body<ByteArray>()
-            destination.parent.toFile().mkdirs()
-            destination.writeBytes(data)
-            println("[CacheManager] Successfully updated $name")
-        } catch (e: Exception) {
-            println("[CacheManager] Could not download $name: ${e.message}. Using existing cache if available.")
-            // Don't rethrow, as we can often function with a stale cache
-        }
-    }
-
-    fun getVanillaVersions(): List<String> {
-        val manifestFile = cacheDir.resolve("vanilla_versions.json")
-        if (!manifestFile.toFile().exists()) return emptyList()
 
         return try {
-            val manifest = json.decodeFromString<VersionManifest>(manifestFile.readText())
-            manifest.versions.filter { it.type == "release" }.map { it.id }
-        } catch (e: Exception) {
-            println("[CacheManager] Failed to parse vanilla versions: ${e.message}")
-            emptyList()
+            val fetchedData = fetcher()
+            cacheFile.writeText(json.encodeToString(fetchedData))
+            fetchedData
+        } catch (_: Exception) {
+            // Handle fetch error
+            null
         }
     }
 
-    @Serializable
-    private data class VersionManifest(val versions: List<VersionEntry>)
+    suspend fun updateAllCaches() = coroutineScope {
+        // Здесь можно добавить логику для обновления всех кэшей
+        // Например, для популярных запросов Modrinth
+        val popularModsJob = async {
+            getOrFetch("modrinth_search_popular_mods") {
+                // Эта логика теперь будет в ModrinthApi
+            }
+        }
+        val popularModpacksJob = async {
+            getOrFetch("modrinth_search_popular_modpacks") {
+                // Эта логика теперь будет в ModrinthApi
+            }
+        }
+        // Дождитесь выполнения всех задач
+        popularModsJob.await()
+        popularModpacksJob.await()
+    }
 
-    @Serializable
-    private data class VersionEntry(val id: String, val type: String, val releaseTime: String)
+    private fun sha256(input: String): String {
+        val bytes = input.toByteArray()
+        val md = MessageDigest.getInstance("SHA-256")
+        val digest = md.digest(bytes)
+        return digest.fold("") { str, it -> str + "%02x".format(it) }
+    }
 }
