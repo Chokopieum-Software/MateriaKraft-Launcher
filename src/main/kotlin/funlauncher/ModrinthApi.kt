@@ -13,7 +13,7 @@ import kotlinx.serialization.json.Json
 
 private const val MODRINTH_API_URL = "https://api.modrinth.com/v2"
 
-class ModrinthApi {
+class ModrinthApi(private val cacheManager: CacheManager) {
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(Json {
@@ -23,7 +23,7 @@ class ModrinthApi {
         }
         install(Logging) {
             logger = Logger.DEFAULT
-            level = LogLevel.ALL
+            level = LogLevel.NONE
         }
     }
 
@@ -33,23 +33,32 @@ class ModrinthApi {
         limit: Int = 20,
         offset: Int = 0
     ): SearchResult {
-        val response = client.get("$MODRINTH_API_URL/search") {
-            parameter("query", query)
-            parameter("facets", facets)
-            parameter("limit", limit)
-            parameter("offset", offset)
-        }
-        return response.body()
+        val cacheKey = "modrinth_search_${query}_${facets}_${limit}_${offset}"
+        return cacheManager.getOrFetch(cacheKey) {
+            val response = client.get("$MODRINTH_API_URL/search") {
+                parameter("query", query)
+                parameter("facets", facets)
+                parameter("limit", limit)
+                parameter("offset", offset)
+            }
+            response.body()
+        }!!
     }
 
     suspend fun getProject(id: String): Project {
-        val response = client.get("$MODRINTH_API_URL/project/$id")
-        return response.body()
+        val cacheKey = "modrinth_project_$id"
+        return cacheManager.getOrFetch(cacheKey) {
+            val response = client.get("$MODRINTH_API_URL/project/$id")
+            response.body()
+        }!!
     }
 
     suspend fun getProjectVersions(id: String): List<Version> {
-        val response = client.get("$MODRINTH_API_URL/project/$id/version")
-        return response.body()
+        val cacheKey = "modrinth_project_versions_$id"
+        return cacheManager.getOrFetch(cacheKey) {
+            val response = client.get("$MODRINTH_API_URL/project/$id/version")
+            response.body()
+        }!!
     }
 
     fun close() {

@@ -79,7 +79,8 @@ fun App(
     javaManager: JavaManager,
     accountManager: AccountManager,
     javaDownloader: JavaDownloader,
-    pathManager: PathManager
+    pathManager: PathManager,
+    cacheManager: CacheManager
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -285,7 +286,8 @@ fun App(
                                     currentTab = AppTab.Home
                                 },
                                 pathManager = pathManager,
-                                snackbarHostState = snackbarHostState
+                                snackbarHostState = snackbarHostState,
+                                cacheManager = cacheManager
                             )
                             AppTab.Settings -> SettingsTab(
                                 currentSettings = appState.settings,
@@ -496,11 +498,11 @@ fun App(
                 }
             )
         }
-        errorDialogMessage?.let {
+        errorDialogMessage?.let { message ->
             AlertDialog(
                 onDismissRequest = { errorDialogMessage = null },
                 title = { Text("Ошибка") },
-                text = { Text(it) },
+                text = { Text(message) },
                 confirmButton = { Button(onClick = { errorDialogMessage = null }) { Text("OK") } }
             )
         }
@@ -616,6 +618,8 @@ fun main() {
         val javaManager by lazy { JavaManager(pathManager) }
         val javaDownloader by lazy { JavaDownloader(pathManager, javaManager) }
         val cacheManager by lazy { CacheManager(pathManager) }
+        val modrinthApi by lazy { ModrinthApi(cacheManager) }
+
 
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
@@ -665,7 +669,7 @@ fun main() {
             AnimatedAppTheme(Theme.Dark) { SplashScreen() }
         }
 
-        when (val screen = currentScreen) {
+        when (currentScreen) {
             is Screen.Splash -> { /* Ничего не делаем, сплеш уже показан */ }
             is Screen.FirstRunWizard -> {
                 var wizardTheme by remember { mutableStateOf(Theme.Dark) }
@@ -697,6 +701,7 @@ fun main() {
                     Window(
                         onCloseRequest = {
                             ImageLoader.close()
+                            modrinthApi.close()
                             exitApplication()
                         },
                         title = "Materia",
@@ -713,7 +718,8 @@ fun main() {
                             javaManager = javaManager,
                             accountManager = accountManager,
                             javaDownloader = javaDownloader,
-                            pathManager = pathManager
+                            pathManager = pathManager,
+                            cacheManager = cacheManager
                         )
                         SideEffect { if (!isContentReady) isContentReady = true }
                     }

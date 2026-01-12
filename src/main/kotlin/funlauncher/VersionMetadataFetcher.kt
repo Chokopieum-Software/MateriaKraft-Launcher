@@ -36,6 +36,11 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
 
     private fun log(message: String) = println("[VersionFetcher] $message")
 
+    suspend fun getVanillaVersions(): List<String> {
+        val manifest = client.get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json").body<VersionManifest>()
+        return manifest.versions.map { it.id }
+    }
+
     suspend fun getVersionInfo(build: MinecraftBuild, task: DownloadTask? = null): VersionInfo {
         // 1. Определяем ID версии для поиска
         val versionIdToFind = build.modloaderVersion ?: build.version

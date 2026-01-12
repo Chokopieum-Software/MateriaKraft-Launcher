@@ -125,7 +125,7 @@ Distributed under the MIT License. See the `LICENSE` file for more information.
 
 1. Клонируйте репозиторий:
    ```bash
-   git clone https://github.com/ваш_ник/MateriaKraft-Launcher.git
+   git clone https://github.com/Chokopieum-Software/MateriaKraft-Launcher.git
    ```
 2. Откройте проект в **IntelliJ IDEA**.
 3. Дождитесь импорта Gradle.

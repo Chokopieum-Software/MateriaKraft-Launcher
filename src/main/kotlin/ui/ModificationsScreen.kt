@@ -164,14 +164,15 @@ fun ModificationsScreen(
     buildManager: BuildManager,
     onModpackInstalled: () -> Unit,
     pathManager: PathManager,
-    snackbarHostState: SnackbarHostState
+    snackbarHostState: SnackbarHostState,
+    cacheManager: CacheManager
 ) {
     val scope = rememberCoroutineScope()
-    val modrinthApi = remember { ModrinthApi() }
+    val modrinthApi = remember { ModrinthApi(cacheManager) }
     val modificationDownloader = remember { ModificationDownloader() }
+    val versionMetadataFetcher = remember { VersionMetadataFetcher(buildManager, pathManager) }
     // Используем глобальный scope для установщика
     val modpackInstaller = remember { ModpackInstaller(buildManager, modrinthApi, pathManager, ApplicationScope.scope) }
-    val cacheManager = remember { CacheManager(pathManager) }
 
     var searchQuery by remember { mutableStateOf("") }
     var searchResult by remember { mutableStateOf<SearchResult?>(null) }
@@ -203,32 +204,44 @@ fun ModificationsScreen(
 
     LaunchedEffect(versionLoadTrigger) {
         withContext(Dispatchers.IO) {
-            val cachedVersions = cacheManager.getVanillaVersions()
-            if (cachedVersions.isEmpty() || versionLoadTrigger > 0) { // Force reload on trigger
-                try {
-                    cacheManager.updateAllCaches()
+            val cachedVersions = cacheManager.getOrFetch<List<String>>("vanilla_versions") {
+                versionMetadataFetcher.getVanillaVersions()
+            }
+            if (cachedVersions != null) {
+                withContext(Dispatchers.Main) {
                     versions.clear()
-                    versions.addAll(cacheManager.getVanillaVersions())
-                } catch (e: Exception) {
+                    versions.addAll(cachedVersions)
+                }
+            }
+
+            // Background update
+            try {
+                val freshVersions = versionMetadataFetcher.getVanillaVersions()
+                if (freshVersions.sorted() != cachedVersions?.sorted()) {
                     withContext(Dispatchers.Main) {
-                        val result = snackbarHostState.showSnackbar(
-                            message = "Ошибка загрузки версий: ${e.message}",
-                            actionLabel = "Повторить",
-                            duration = SnackbarDuration.Indefinite
-                        )
-                        if (result == SnackbarResult.ActionPerformed) {
-                            versionLoadTrigger++
-                        }
+                        versions.clear()
+                        versions.addAll(freshVersions)
+                    }
+                    // Update cache in the background
+                    cacheManager.getOrFetch<List<String>>("vanilla_versions") { freshVersions }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Ошибка загрузки версий: ${e.message}",
+                        actionLabel = "Повторить",
+                        duration = SnackbarDuration.Indefinite
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        versionLoadTrigger++
                     }
                 }
-            } else {
-                versions.addAll(cachedVersions)
             }
         }
     }
 
     LaunchedEffect(searchQuery, selectedType, selectedVersions.size, categoryFilters.toMap()) {
-        if (selectedProject == null) { // Не запускаем поиск, если открыты детали
+        if (selectedProject == null) {
             isLoading = true
             scope.launch(Dispatchers.IO) {
                 try {
@@ -237,7 +250,7 @@ fun ModificationsScreen(
                     selectedVersions.forEach { facets.add(listOf("versions:$it")) }
 
                     val includedCategories = categoryFilters.filter { it.value == CategoryFilterState.INCLUDED }.keys.map { "categories:${it.internalName}" }
-                    val excludedCategories = categoryFilters.filter { it.value == CategoryFilterState.EXCLUDED }.keys.map { "categories:-${it.internalName}" } // Note the "-" sign
+                    val excludedCategories = categoryFilters.filter { it.value == CategoryFilterState.EXCLUDED }.keys.map { "categories:-${it.internalName}" }
 
                     if (includedCategories.isNotEmpty()) {
                         facets.add(includedCategories)
@@ -246,8 +259,8 @@ fun ModificationsScreen(
                         excludedCategories.forEach { facets.add(listOf(it)) }
                     }
 
-                    val facetsJsonString = "[${facets.joinToString(",") { "[\"${it.joinToString("\",\"")}\"]" }}]"
-
+                    val facetsJsonString = "[${facets.joinToString(",") { "[\\\"${it.joinToString("\\\",\\\"")}\\\"]" }}]"
+                    
                     val result = modrinthApi.search(searchQuery, facetsJsonString)
                     withContext(Dispatchers.Main) {
                         searchResult = result
