@@ -102,8 +102,6 @@ dependencies {
     implementation("org.apache.commons:commons-compress:1.26.2")
     implementation("org.apache.commons:commons-lang3:3.18.0")
     testImplementation(kotlin("test-junit5"))
-    testImplementation("org.junit.jupiter:api:5.10.3")
-    testRuntimeOnly("org.junit.jupiter:engine:5.10.3")
 }
 
 kotlin {

@@ -51,22 +51,12 @@ class CacheManager(
         }
     }
 
-    suspend fun updateAllCaches() = coroutineScope {
-        // Здесь можно добавить логику для обновления всех кэшей
-        // Например, для популярных запросов Modrinth
-        val popularModsJob = async {
-            getOrFetch("modrinth_search_popular_mods") {
-                // Эта логика теперь будет в ModrinthApi
+    suspend fun prefetchCaches(vararg prefetchTasks: Pair<String, suspend () -> Any>) = coroutineScope {
+        for ((key, fetcher) in prefetchTasks) {
+            async {
+                getOrFetch(key, fetcher)
             }
         }
-        val popularModpacksJob = async {
-            getOrFetch("modrinth_search_popular_modpacks") {
-                // Эта логика теперь будет в ModrinthApi
-            }
-        }
-        // Дождитесь выполнения всех задач
-        popularModsJob.await()
-        popularModpacksJob.await()
     }
 
     private fun sha256(input: String): String {

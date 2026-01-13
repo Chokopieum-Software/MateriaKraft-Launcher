@@ -48,9 +48,16 @@ import funlauncher.net.ModrinthApi
 import kotlinx.coroutines.*
 import ui.*
 import java.awt.Desktop
+import java.awt.Dimension
+import java.awt.Image
+import java.awt.Toolkit
 import java.io.File
 import java.lang.management.ManagementFactory
 import java.net.URI
+import java.util.Properties
+import javax.imageio.ImageIO
+import javax.swing.*
+import kotlin.math.min
 
 enum class AppTab { Home, Modifications, Settings }
 
@@ -615,17 +622,65 @@ fun main() {
     val os = System.getProperty("os.name").lowercase()
     if (!os.contains("mac")) { // На macOS используется Metal по умолчанию
         val renderApi = try {
-            // Попытка загрузки класса вызовет его инициализацию,
-            // которая включает загрузку нативных библиотек.
-            // Если драйвер Vulkan отсутствует, это вызовет ошибку.
             Class.forName("org.jetbrains.skiko.vulkan.VulkanWindow")
             "VULKAN"
         } catch (e: Throwable) {
-            // Ловим Throwable, чтобы перехватить ClassNotFoundException, UnsatisfiedLinkError и другие.
             "OPENGL"
         }
         System.setProperty("skiko.renderApi", renderApi)
         println("Using render API: $renderApi")
+    }
+
+    val splash = JWindow()
+    val statusLabel = JLabel("Initializing...", SwingConstants.RIGHT)
+
+    try {
+        // Загрузка информации о версии
+        val props = Properties()
+        Thread.currentThread().contextClassLoader.getResourceAsStream("app.properties")?.use { props.load(it) }
+        val version = props.getProperty("version", "Unknown")
+        val buildNumber = props.getProperty("buildNumber", "N/A")
+        val versionText = "$version ($buildNumber)"
+
+        // Настройка меток
+        val versionLabel = JLabel(versionText, SwingConstants.RIGHT)
+        versionLabel.foreground = java.awt.Color.WHITE
+        statusLabel.foreground = java.awt.Color.WHITE
+
+        // Загрузка и масштабирование изображения
+        val originalImage = ImageIO.read(Thread.currentThread().contextClassLoader.getResource("banner.png"))
+        val screenSize = Toolkit.getDefaultToolkit().screenSize
+        val targetWidth = screenSize.width / 2.5
+        val targetHeight = screenSize.height / 2.5
+        val imageWidth = originalImage.width
+        val imageHeight = originalImage.height
+        val ratio = min(targetWidth / imageWidth, targetHeight / imageHeight)
+        val newWidth = (imageWidth * ratio).toInt()
+        val newHeight = (imageHeight * ratio).toInt()
+        val finalImage = originalImage.getScaledInstance(newWidth, newHeight, Image.SCALE_SMOOTH)
+        
+        // Создание слоистой панели
+        val layeredPane = JLayeredPane()
+        layeredPane.preferredSize = Dimension(newWidth, newHeight)
+
+        val imageLabel = JLabel(ImageIcon(finalImage))
+        imageLabel.setBounds(0, 0, newWidth, newHeight)
+        
+        // Позиционирование меток в правом нижнем углу
+        val margin = 10
+        statusLabel.setBounds(0, newHeight - 30 - margin, newWidth - margin, 20)
+        versionLabel.setBounds(0, newHeight - 15 - margin, newWidth - margin, 20)
+
+        layeredPane.add(imageLabel, JLayeredPane.DEFAULT_LAYER)
+        layeredPane.add(statusLabel, JLayeredPane.PALETTE_LAYER)
+        layeredPane.add(versionLabel, JLayeredPane.PALETTE_LAYER)
+
+        splash.contentPane.add(layeredPane)
+        splash.pack()
+        splash.setLocationRelativeTo(null)
+        splash.isVisible = true
+    } catch (e: Exception) {
+        e.printStackTrace()
     }
 
     application {
@@ -636,6 +691,7 @@ fun main() {
         val icon = painterResource("logo.ico")
 
         // Ленивая инициализация менеджеров
+        SwingUtilities.invokeLater { statusLabel.text = "Starting managers..." }
         val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
         val settingsManager by lazy { SettingsManager(pathManager) }
         val buildManager by lazy { BuildManager(pathManager) }
@@ -645,22 +701,33 @@ fun main() {
         val cacheManager by lazy { CacheManager(pathManager) }
         val modrinthApi by lazy { ModrinthApi(cacheManager) }
 
+        LaunchedEffect(isContentReady) {
+            if (isContentReady) {
+                splash.isVisible = false
+                splash.dispose()
+            }
+        }
 
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
-                cacheManager.updateAllCaches()
+                SwingUtilities.invokeLater { statusLabel.text = "Updating caches..." }
+                cacheManager.prefetchCaches(
+                    "modrinth_search_popular_mods" to { modrinthApi.getPopularProjects("mod") },
+                    "modrinth_search_popular_modpacks" to { modrinthApi.getPopularProjects("modpack") }
+                )
             }
         }
 
         LaunchedEffect(currentScreen) {
             if (currentScreen is Screen.Splash) {
-                isContentReady = false // Сбрасываем готовность при возврате на сплеш
+                isContentReady = false
                 scope.launch(Dispatchers.IO) {
                     if (pathManager.isFirstRunRequired()) {
                         withContext(Dispatchers.Main) {
                             currentScreen = Screen.FirstRunWizard
                         }
                     } else {
+                        SwingUtilities.invokeLater { statusLabel.text = "Loading UI..." }
                         val settingsJob = async { settingsManager.loadSettings() }
                         val buildsJob = async { buildManager.loadBuilds() }
                         val accountsJob = async { accountManager.loadAccounts() }
@@ -679,28 +746,16 @@ fun main() {
             }
         }
 
-        Window(
-            onCloseRequest = ::exitApplication,
-            undecorated = true,
-            transparent = true,
-            alwaysOnTop = true,
-            visible = !isContentReady,
-            icon = icon,
-            state = rememberWindowState(
-                width = 400.dp,
-                height = 200.dp,
-                position = WindowPosition(Alignment.Center)
-            )
-        ) {
-            AnimatedAppTheme(Theme.Dark) { SplashScreen() }
-        }
-
         when (currentScreen) {
             is Screen.Splash -> { /* Ничего не делаем, сплеш уже показан */ }
             is Screen.FirstRunWizard -> {
                 var wizardTheme by remember { mutableStateOf(Theme.Dark) }
                 Window(
-                    onCloseRequest = ::exitApplication,
+                    onCloseRequest = {
+                        ImageLoader.close()
+                        modrinthApi.close()
+                        exitApplication()
+                    },
                     title = "Materia - Мастер настройки",
                     visible = isContentReady,
                     icon = icon,

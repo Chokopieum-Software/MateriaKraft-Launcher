@@ -34,6 +34,7 @@ import funlauncher.net.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import java.io.File
 
 enum class CategoryFilterState {
@@ -61,20 +62,18 @@ fun ModificationCard(hit: Hit, onClick: () -> Unit) {
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
-                if (imageBitmap != null) {
+                imageBitmap?.let {
                     Image(
-                        bitmap = imageBitmap!!,
+                        bitmap = it,
                         contentDescription = "${hit.title} icon",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Build,
-                        contentDescription = "Placeholder icon",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                } ?: Icon(
+                    imageVector = Icons.Default.Build,
+                    contentDescription = "Placeholder icon",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             Spacer(Modifier.width(16.dp))
@@ -265,7 +264,7 @@ fun ModificationsScreen(
                         excludedCategories.forEach { facets.add(listOf(it)) }
                     }
 
-                    val facetsJsonString = "[${facets.joinToString(",") { "[\\\"${it.joinToString("\\\",\\\"")}\\\"]" }}]"
+                    val facetsJsonString = Json.encodeToString(facets)
                     
                     val result = modrinthApi.search(searchQuery, facetsJsonString)
                     withContext(Dispatchers.Main) {
@@ -345,7 +344,7 @@ fun ModificationsScreen(
                                         }
                                     )
                                     Text(version, modifier = Modifier.padding(start = 4.dp))
-                                }
+                                 }
                             }
                         }
                         Spacer(Modifier.height(16.dp))

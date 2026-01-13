@@ -43,7 +43,7 @@ class ModrinthApi(private val cacheManager: CacheManager) {
                 parameter("offset", offset)
             }
             response.body()
-        }!!
+        } ?: throw IllegalStateException("Failed to fetch search results from Modrinth API")
     }
 
     suspend fun getProject(id: String): Project {
@@ -51,7 +51,7 @@ class ModrinthApi(private val cacheManager: CacheManager) {
         return cacheManager.getOrFetch(cacheKey) {
             val response = client.get("$MODRINTH_API_URL/project/$id")
             response.body()
-        }!!
+        } ?: throw IllegalStateException("Failed to fetch project details from Modrinth API for id: $id")
     }
 
     suspend fun getProjectVersions(id: String): List<Version> {
@@ -59,7 +59,16 @@ class ModrinthApi(private val cacheManager: CacheManager) {
         return cacheManager.getOrFetch(cacheKey) {
             val response = client.get("$MODRINTH_API_URL/project/$id/version")
             response.body()
-        }!!
+        } ?: throw IllegalStateException("Failed to fetch project versions from Modrinth API for id: $id")
+    }
+
+    internal suspend fun getPopularProjects(projectType: String): SearchResult {
+        val response = client.get("$MODRINTH_API_URL/search") {
+            parameter("facets", "[[\"project_type:$projectType\"]]")
+            parameter("index", "downloads")
+            parameter("limit", 20)
+        }
+        return response.body()
     }
 
     fun close() {
