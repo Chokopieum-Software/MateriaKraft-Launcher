@@ -15,6 +15,7 @@ import funlauncher.auth.Account
 import funlauncher.managers.PathManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.chokopieum.software.mlgd.LaunchConfig
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -40,6 +41,40 @@ class GameLauncher(
     private val gameDir: Path = File(build.installPath).toPath()
 
     private fun log(message: String) = println("[GameLauncher] $message")
+
+    suspend fun createLaunchConfig(
+        account: Account,
+        javaPath: String,
+        maxRamMb: Int,
+        customJavaArgs: String,
+        envVars: String
+    ): LaunchConfig {
+        extractNatives()
+        val command = buildLaunchCommand(account, javaPath, maxRamMb, customJavaArgs)
+
+        val mainClassIndex = command.indexOf(versionInfo.mainClass)
+        val jvmArgs = command.subList(1, mainClassIndex)
+        val gameArgs = command.subList(mainClassIndex + 1, command.size)
+
+        val envMap = if (envVars.isNotBlank()) {
+            envVars.lines().mapNotNull { line ->
+                val parts = line.split("=", limit = 2)
+                if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+            }.toMap()
+        } else {
+            emptyMap()
+        }
+
+        return LaunchConfig(
+            buildName = build.name,
+            javaPath = command.first(),
+            jvmArgs = jvmArgs,
+            gameJarPath = command[mainClassIndex],
+            gameArgs = gameArgs,
+            workingDir = gameDir.toAbsolutePath().toString(),
+            envVars = envMap
+        )
+    }
 
     suspend fun launch(
         account: Account,

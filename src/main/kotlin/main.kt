@@ -9,7 +9,6 @@
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,6 +36,7 @@ import funlauncher.SettingsManager
 import funlauncher.Theme
 import funlauncher.auth.Account
 import funlauncher.auth.AccountManager
+import funlauncher.game.MLGDClient
 import funlauncher.game.MinecraftInstaller
 import funlauncher.managers.BuildManager
 import funlauncher.managers.CacheManager
@@ -46,6 +46,7 @@ import funlauncher.net.DownloadManager
 import funlauncher.net.JavaDownloader
 import funlauncher.net.ModrinthApi
 import kotlinx.coroutines.*
+import org.chokopieum.software.mlgd.StatusResponse
 import ui.*
 import java.awt.Desktop
 import java.awt.Dimension
@@ -73,21 +74,8 @@ fun AnimatedAppTheme(
     }
     val colors = if (isDark) darkColorScheme() else lightColorScheme()
 
-    val animatedColors = colors.copy(
-        primary = animateColorAsState(colors.primary).value,
-        secondary = animateColorAsState(colors.secondary).value,
-        tertiary = animateColorAsState(colors.tertiary).value,
-        background = animateColorAsState(colors.background).value,
-        surface = animateColorAsState(colors.surface).value,
-        onPrimary = animateColorAsState(colors.onPrimary).value,
-        onSecondary = animateColorAsState(colors.onSecondary).value,
-        onTertiary = animateColorAsState(colors.onTertiary).value,
-        onBackground = animateColorAsState(colors.onBackground).value,
-        onSurface = animateColorAsState(colors.onSurface).value
-    )
-
     MaterialTheme(
-        colorScheme = animatedColors,
+        colorScheme = colors,
         content = content
     )
 }
@@ -113,9 +101,12 @@ fun App(
     var accounts by remember { mutableStateOf(appState.accounts) }
     var currentAccount by remember { mutableStateOf(accounts.firstOrNull()) }
 
-    var selectedBuild by remember { mutableStateOf<MinecraftBuild?>(null) }
-    var gameProcess by remember { mutableStateOf<Process?>(null) }
-    val isGameRunning = gameProcess?.isAlive == true
+    // --- MLGD Integration ---
+    var daemonStatus by remember { mutableStateOf(StatusResponse(running = false)) }
+    val runningBuild = remember(daemonStatus, buildList.size) {
+        if (daemonStatus.running) buildList.find { it.name == daemonStatus.buildName } else null
+    }
+    // --- End MLGD Integration ---
 
     var showAddBuildDialog by remember { mutableStateOf(false) }
     var showJavaManagerWindow by remember { mutableStateOf(false) }
@@ -129,6 +120,21 @@ fun App(
 
     var isLaunchingBuildId by remember { mutableStateOf<String?>(null) }
     var showCheckmark by remember { mutableStateOf(false) }
+
+    // --- MLGD Integration: Poll for status ---
+    LaunchedEffect(Unit) {
+        while (true) {
+            val newStatus = MLGDClient.getStatus()
+            if (newStatus != daemonStatus) {
+                daemonStatus = newStatus
+                if (!newStatus.running) {
+                    isLaunchingBuildId = null
+                }
+            }
+            delay(2000) // Poll every 2 seconds
+        }
+    }
+    // --- End MLGD Integration ---
 
     LaunchedEffect(Unit) {
         val (synchronizedBuilds, newCount) = withContext(Dispatchers.IO) {
@@ -162,24 +168,7 @@ fun App(
         }
     }
 
-    LaunchedEffect(isGameRunning) {
-        if (!isGameRunning) {
-            showGameConsole = false
-        }
-    }
-
-    LaunchedEffect(gameProcess) {
-        if (gameProcess != null) {
-            scope.launch(Dispatchers.IO) {
-                gameProcess?.waitFor()
-                withContext(Dispatchers.Main) {
-                    gameProcess = null
-                    selectedBuild = null
-                }
-            }
-        }
-    }
-
+    // --- MLGD Integration: launchMinecraft function ---
     suspend fun launchMinecraft(build: MinecraftBuild, javaPath: String, account: Account) {
         try {
             if (appState.settings.showConsoleOnLaunch) {
@@ -190,36 +179,34 @@ fun App(
             val finalJavaArgs = build.javaArgs ?: appState.settings.javaArgs
             val finalEnvVars = build.envVars ?: appState.settings.envVars
 
-            val process = withContext(Dispatchers.IO) {
-                installer.launch(
+            val launchConfig = withContext(Dispatchers.IO) {
+                installer.createLaunchConfig(
                     account = account,
                     javaPath = javaPath,
                     maxRamMb = finalMaxRam,
                     javaArgs = finalJavaArgs,
-                    envVars = finalEnvVars,
-                    showConsole = appState.settings.showConsoleOnLaunch
+                    envVars = finalEnvVars
                 )
             }
-            gameProcess = process
+            val newStatus = MLGDClient.launch(launchConfig)
+            daemonStatus = newStatus
         } catch (e: Exception) {
             e.printStackTrace()
             errorDialogMessage = "Ошибка запуска: ${e.message}"
-        } finally {
             isLaunchingBuildId = null
         }
     }
+    // --- End MLGD Integration ---
 
     val performLaunch: (MinecraftBuild) -> Unit = { build ->
-        selectedBuild = build
         isLaunchingBuildId = build.name
         scope.launch {
-            val useAutoJava = build.javaPath == "" || (build.javaPath == null && appState.settings.javaPath.isBlank())
+            val useAutoJava = build.javaPath.isNullOrBlank() && appState.settings.javaPath.isBlank()
 
             if (useAutoJava) {
                 val recommendedVersion = javaManager.getRecommendedJavaVersion(build.version)
                 val installations = javaManager.findJavaInstallations()
-                val allJavas = installations.launcher + installations.system
-                val exactJava = allJavas.firstOrNull { it.version == recommendedVersion && it.is64Bit }
+                val exactJava = (installations.launcher + installations.system).firstOrNull { it.version == recommendedVersion && it.is64Bit }
 
                 if (exactJava != null) {
                     launchMinecraft(build, exactJava.path, currentAccount!!)
@@ -227,9 +214,7 @@ fun App(
                     javaDownloader.downloadAndUnpack(recommendedVersion) { result ->
                         scope.launch {
                             result.fold(
-                                onSuccess = { downloadedJava ->
-                                    launchMinecraft(build, downloadedJava.path, currentAccount!!)
-                                },
+                                onSuccess = { downloadedJava -> launchMinecraft(build, downloadedJava.path, currentAccount!!) },
                                 onFailure = {
                                     errorDialogMessage = "Не удалось скачать Java: ${it.message}"
                                     isLaunchingBuildId = null
@@ -245,13 +230,14 @@ fun App(
         }
     }
 
+    // --- MLGD Integration: onLaunchClick ---
     val onLaunchClick: (MinecraftBuild) -> Unit = onLaunchClick@{ build ->
         if (currentAccount == null) {
             errorDialogMessage = "Сначала выберите аккаунт!"
             return@onLaunchClick
         }
-        if (isGameRunning) {
-            gameProcess?.destroyForcibly()
+        if (daemonStatus.running) {
+            scope.launch { snackbarHostState.showSnackbar("Игра '${daemonStatus.buildName}' уже запущена.") }
             return@onLaunchClick
         }
 
@@ -265,6 +251,7 @@ fun App(
             performLaunch(build)
         }
     }
+    // --- End MLGD Integration ---
 
     val onDeleteBuildClick: (MinecraftBuild) -> Unit = { build ->
         buildToDelete = build
@@ -288,7 +275,7 @@ fun App(
                         when (tab) {
                             AppTab.Home -> HomeScreen(
                                 builds = buildList,
-                                runningBuild = if (isGameRunning) selectedBuild else null,
+                                runningBuild = runningBuild,
                                 onLaunchClick = onLaunchClick,
                                 onOpenFolderClick = { openFolder(it.installPath) },
                                 onAddBuildClick = { showAddBuildDialog = true },
@@ -329,7 +316,7 @@ fun App(
                     NavigationRail(
                         modifier = Modifier
                             .padding(start = 16.dp)
-                            .height(300.dp) // Adjusted height
+                            .height(300.dp)
                             .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp))
                             .clip(RoundedCornerShape(16.dp)),
                         containerColor = MaterialTheme.colorScheme.surface
@@ -337,7 +324,7 @@ fun App(
                         Column(
                             modifier = Modifier.fillMaxHeight().padding(vertical = 16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center // Centered items
+                            verticalArrangement = Arrangement.Center
                         ) {
                             NavigationRailItem(
                                 selected = currentTab == AppTab.Home,
@@ -399,7 +386,6 @@ fun App(
                     }
                 }
 
-                // --- Floating Downloads Button ---
                 val hasActiveDownloads = DownloadManager.tasks.isNotEmpty()
                 AnimatedVisibility(
                     visible = hasActiveDownloads || showCheckmark,
@@ -421,7 +407,7 @@ fun App(
                                     primaryColor = MaterialTheme.colorScheme.primary,
                                     secondaryColor = MaterialTheme.colorScheme.tertiary
                                 )
-                                else -> Icon(Icons.Default.Download, contentDescription = "Загрузки") // Fallback
+                                else -> Icon(Icons.Default.Download, contentDescription = "Загрузки")
                             }
                         }
                         if (showDownloadsPopup) {
@@ -534,7 +520,7 @@ fun App(
                             scope.launch {
                                 buildsPendingDeletion.add(build.name)
                                 buildToDelete = null
-                                delay(400) // Animation duration
+                                delay(400)
                                 buildManager.deleteBuild(build.name)
                                 buildList.removeIf { it.name == build.name }
                                 buildsPendingDeletion.remove(build.name)
@@ -617,10 +603,11 @@ data class AppState(
     val accounts: List<Account>
 )
 
+var isContentReady by mutableStateOf(false)
+
 fun main() {
-    // Выбираем API рендеринга: Vulkan если доступен, иначе OpenGL, чтобы избежать проблем с DirectX.
     val os = System.getProperty("os.name").lowercase()
-    if (!os.contains("mac")) { // На macOS используется Metal по умолчанию
+    if (!os.contains("mac")) {
         val renderApi = try {
             Class.forName("org.jetbrains.skiko.vulkan.VulkanWindow")
             "VULKAN"
@@ -635,19 +622,16 @@ fun main() {
     val statusLabel = JLabel("Initializing...", SwingConstants.RIGHT)
 
     try {
-        // Загрузка информации о версии
         val props = Properties()
         Thread.currentThread().contextClassLoader.getResourceAsStream("app.properties")?.use { props.load(it) }
         val version = props.getProperty("version", "Unknown")
         val buildNumber = props.getProperty("buildNumber", "N/A")
         val versionText = "$version ($buildNumber)"
 
-        // Настройка меток
         val versionLabel = JLabel(versionText, SwingConstants.RIGHT)
         versionLabel.foreground = java.awt.Color.WHITE
         statusLabel.foreground = java.awt.Color.WHITE
 
-        // Загрузка и масштабирование изображения
         val originalImage = ImageIO.read(Thread.currentThread().contextClassLoader.getResource("banner.png"))
         val screenSize = Toolkit.getDefaultToolkit().screenSize
         val targetWidth = screenSize.width / 2.5
@@ -659,14 +643,12 @@ fun main() {
         val newHeight = (imageHeight * ratio).toInt()
         val finalImage = originalImage.getScaledInstance(newWidth, newHeight, Image.SCALE_SMOOTH)
         
-        // Создание слоистой панели
         val layeredPane = JLayeredPane()
         layeredPane.preferredSize = Dimension(newWidth, newHeight)
 
         val imageLabel = JLabel(ImageIcon(finalImage))
         imageLabel.setBounds(0, 0, newWidth, newHeight)
         
-        // Позиционирование меток в правом нижнем углу
         val margin = 10
         statusLabel.setBounds(0, newHeight - 30 - margin, newWidth - margin, 20)
         versionLabel.setBounds(0, newHeight - 15 - margin, newWidth - margin, 20)
@@ -683,15 +665,25 @@ fun main() {
         e.printStackTrace()
     }
 
+    runBlocking {
+        val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
+        SwingUtilities.invokeLater { statusLabel.text = "Starting daemon..." }
+        try {
+            MLGDClient.ensureDaemonRunning(pathManager.getLauncherDir())
+        } catch (e: Exception) {
+            e.printStackTrace()
+            splash.isVisible = false
+            JOptionPane.showMessageDialog(null, "Could not start or connect to MLGD daemon.\n${e.message}", "Fatal Error", JOptionPane.ERROR_MESSAGE)
+            return@runBlocking
+        }
+    }
+
     application {
         var currentScreen by remember { mutableStateOf<Screen>(Screen.Splash) }
         var appState by remember { mutableStateOf<AppState?>(null) }
-        var isContentReady by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         val icon = painterResource("logo.ico")
 
-        // Ленивая инициализация менеджеров
-        SwingUtilities.invokeLater { statusLabel.text = "Starting managers..." }
         val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
         val settingsManager by lazy { SettingsManager(pathManager) }
         val buildManager by lazy { BuildManager(pathManager) }
@@ -705,16 +697,6 @@ fun main() {
             if (isContentReady) {
                 splash.isVisible = false
                 splash.dispose()
-            }
-        }
-
-        LaunchedEffect(Unit) {
-            withContext(Dispatchers.IO) {
-                SwingUtilities.invokeLater { statusLabel.text = "Updating caches..." }
-                cacheManager.prefetchCaches(
-                    "modrinth_search_popular_mods" to { modrinthApi.getPopularProjects("mod") },
-                    "modrinth_search_popular_modpacks" to { modrinthApi.getPopularProjects("modpack") }
-                )
             }
         }
 
@@ -752,9 +734,12 @@ fun main() {
                 var wizardTheme by remember { mutableStateOf(Theme.Dark) }
                 Window(
                     onCloseRequest = {
-                        ImageLoader.close()
-                        modrinthApi.close()
-                        exitApplication()
+                        scope.launch {
+                            MLGDClient.shutdown()
+                            ImageLoader.close()
+                            modrinthApi.close()
+                            exitApplication()
+                        }
                     },
                     title = "Materia - Мастер настройки",
                     visible = isContentReady,
@@ -782,9 +767,12 @@ fun main() {
                 appState?.let { state ->
                     Window(
                         onCloseRequest = {
-                            ImageLoader.close()
-                            modrinthApi.close()
-                            exitApplication()
+                            scope.launch {
+                                MLGDClient.shutdown()
+                                ImageLoader.close()
+                                modrinthApi.close()
+                                exitApplication()
+                            }
                         },
                         title = "Materia",
                         visible = isContentReady,

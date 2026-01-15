@@ -9,6 +9,7 @@
 package funlauncher.managers
 
 import funlauncher.MinecraftBuild
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -19,6 +20,14 @@ class PathManager(private val rootDir: Path) {
      * Возвращает корневую папку для всех данных лаунчера.
      */
     fun getAppDataDirectory(): Path = rootDir
+
+    /**
+     * Возвращает путь к директории, где находится исполняемый файл лаунчера.
+     */
+    fun getLauncherDir(): File {
+        // Предполагаем, что JAR находится в текущей рабочей директории
+        return File(System.getProperty("user.dir"))
+    }
 
     /**
      * Возвращает путь к глобальной папке с ассетами.

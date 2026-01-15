@@ -80,7 +80,7 @@ repositories {
 }
 
 dependencies {
-
+    implementation(project(":MLGD"))
     implementation(compose.desktop.currentOs)
     implementation(compose.materialIconsExtended)
     implementation(compose.material3)
@@ -92,7 +92,6 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.akuleshov7:ktoml-core-jvm:0.7.1")
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.39.0")
-    implementation("org.slf4j:slf4j-simple:2.0.17")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("io.ktor:ktor-client-core:2.3.13")
     implementation("io.ktor:ktor-client-cio:2.3.13")

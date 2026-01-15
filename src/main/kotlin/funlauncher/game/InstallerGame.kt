@@ -15,6 +15,7 @@ import funlauncher.managers.PathManager
 import funlauncher.net.DownloadManager
 import funlauncher.net.FileDownloader
 import io.ktor.client.plugins.*
+import org.chokopieum.software.mlgd.LaunchConfig
 import java.net.ConnectException
 import java.net.UnknownHostException
 import kotlin.io.path.exists
@@ -29,6 +30,42 @@ class MinecraftInstaller(private val build: MinecraftBuild, private val buildMan
 
     private fun log(message: String) {
         println("[Installer] $message")
+    }
+
+    suspend fun createLaunchConfig(
+        account: Account, javaPath: String, maxRamMb: Int, javaArgs: String, envVars: String
+    ): LaunchConfig {
+        val task = DownloadManager.startTask("Minecraft ${build.version}")
+        try {
+            log("Creating launch config for ${build.name} (${build.version})")
+            log("System: ${System.getProperty("os.name")} ${System.getProperty("os.arch")}, Java: $javaPath")
+
+            // 1. Fetch Version Metadata
+            DownloadManager.updateTask(task.id, 0.05f, "Получение метаданных...")
+            val metadataFetcher = VersionMetadataFetcher(buildManager, pathManager)
+            val versionInfo = metadataFetcher.getVersionInfo(build, task)
+
+            // 2. Download Files
+            DownloadManager.updateTask(task.id, 0.1f, "Загрузка файлов...")
+            val fileDownloader = FileDownloader(versionInfo, pathManager, buildManager)
+            fileDownloader.downloadRequiredFiles(build) { progress, status ->
+                DownloadManager.updateTask(task.id, 0.1f + progress * 0.8f, status)
+            }
+
+            // 3. Create Launch Config
+            DownloadManager.updateTask(task.id, 0.95f, "Создание конфигурации...")
+            val gameLauncher = GameLauncher(versionInfo, build, pathManager)
+            val launchConfig = gameLauncher.createLaunchConfig(account, javaPath, maxRamMb, javaArgs, envVars)
+
+            DownloadManager.updateTask(task.id, 1.0f, "Готово")
+            log("Launch config created successfully.")
+            return launchConfig
+
+        } catch (e: Exception) {
+            handleLaunchException(e)
+        } finally {
+            DownloadManager.endTask(task.id)
+        }
     }
 
     suspend fun launch(
