@@ -5,7 +5,7 @@
  * Распространяется по лицензии MIT.
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
-
+import org.jetbrains.compose.resources.ExperimentalResourceApi
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -20,20 +20,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.*
 import com.sun.management.OperatingSystemMXBean
-import funlauncher.AppSettings
-import funlauncher.MinecraftBuild
-import funlauncher.NavPanelPosition
-import funlauncher.SettingsManager
-import funlauncher.Theme
+import funlauncher.*
 import funlauncher.auth.Account
 import funlauncher.auth.AccountManager
 import funlauncher.game.MLGDClient
@@ -47,32 +38,78 @@ import funlauncher.net.JavaDownloader
 import funlauncher.net.ModrinthApi
 import kotlinx.coroutines.*
 import org.chokopieum.software.mlgd.StatusResponse
-import ui.*
-import java.awt.Desktop
+import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
+import org.chokopieum.software.materia_launcher.generated.resources.*
+import ui.dialogs.AddBuildDialog
+import ui.dialogs.ConfirmDeleteDialog
+import ui.dialogs.ErrorDialog
+import ui.dialogs.RamWarningDialog
+import ui.screens.*
+import ui.windows.GameConsoleWindow
+import ui.widgets.BeautifulCircularProgressIndicator
+import ui.widgets.DownloadsPopup
 import java.awt.Dimension
 import java.awt.Image
 import java.awt.Toolkit
-import java.io.File
 import java.lang.management.ManagementFactory
-import java.net.URI
+import java.time.Month
+import java.time.OffsetDateTime
+import java.util.Locale
 import java.util.Properties
 import javax.imageio.ImageIO
 import javax.swing.*
 import kotlin.math.min
 
+// Перечисление для вкладок навигации в приложении.
 enum class AppTab { Home, Modifications, Settings }
 
+// Цветовая схема "Day" (Светлая, с акцентными цветами).
+val dayColorScheme = lightColorScheme(
+    primary = Color(0xFFC06C84),
+    secondary = Color(0xFF6C5B7B),
+    tertiary = Color(0xFF355C7D),
+    background = Color(0xFFF8F3F1),
+    surface = Color(0xFFFFFFFF),
+    onPrimary = Color.White,
+    onSecondary = Color.White,
+    onTertiary = Color.White,
+    onBackground = Color(0xFF333333),
+    onSurface = Color(0xFF333333),
+)
+
+// Цветовая схема "Amoled" (Темная, с черным фоном для AMOLED-экранов).
+val amoledColorScheme = darkColorScheme(
+    primary = Color(0xFFC06C84),
+    secondary = Color(0xFF6C5B7B),
+    tertiary = Color(0xFF355C7D),
+    background = Color.Black,
+    surface = Color(0xFF1A1A1A),
+    onPrimary = Color.White,
+    onSecondary = Color.White,
+    onTertiary = Color.White,
+    onBackground = Color(0xFFE0E0E0),
+    onSurface = Color(0xFFE0E0E0),
+)
+
+/**
+ * Компонент, который применяет выбранную цветовую схему с анимацией.
+ * @param theme Выбранная тема оформления.
+ * @param content Содержимое, к которому применяется тема.
+ */
 @Composable
 fun AnimatedAppTheme(
     theme: Theme,
     content: @Composable () -> Unit
 ) {
-    val isDark = when (theme) {
-        Theme.System -> isSystemInDarkTheme()
-        Theme.Light -> false
-        Theme.Dark -> true
+    val isSystemDark = isSystemInDarkTheme()
+    val colors = when (theme) {
+        Theme.System -> if (isSystemDark) darkColorScheme() else lightColorScheme()
+        Theme.Light -> lightColorScheme()
+        Theme.Dark -> darkColorScheme()
+        Theme.Day -> dayColorScheme
+        Theme.Amoled -> amoledColorScheme
     }
-    val colors = if (isDark) darkColorScheme() else lightColorScheme()
 
     MaterialTheme(
         colorScheme = colors,
@@ -80,6 +117,17 @@ fun AnimatedAppTheme(
     )
 }
 
+/**
+ * Главный компонент приложения, который управляет состоянием и отображением основного интерфейса.
+ * @param appState Текущее состояние приложения (настройки, сборки, аккаунты).
+ * @param onSettingsChange Функция обратного вызова для сохранения измененных настроек.
+ * @param buildManager Менеджер для работы со сборками Minecraft.
+ * @param javaManager Менеджер для работы с установленными версиями Java.
+ * @param accountManager Менеджер для работы с аккаунтами пользователей.
+ * @param javaDownloader Загрузчик для скачивания версий Java.
+ * @param pathManager Менеджер путей к файлам приложения.
+ * @param cacheManager Менеджер кэша.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun App(
@@ -95,29 +143,33 @@ fun App(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // --- Состояния UI ---
     var currentTab by remember { mutableStateOf(AppTab.Home) }
     val buildList = remember { mutableStateListOf(*appState.builds.toTypedArray()) }
-    val buildsPendingDeletion = remember { mutableStateSetOf<String>() }
+    val buildsPendingDeletion = remember { mutableStateSetOf<String>() } // Сборки, ожидающие удаления (для анимации)
     var accounts by remember { mutableStateOf(appState.accounts) }
     var currentAccount by remember { mutableStateOf(accounts.firstOrNull()) }
 
-    // --- MLGD Integration ---
+    // --- Интеграция с MLGD (MateriaKraft Launcher Game Daemon) ---
+    // Состояние демона, отвечающего за запуск игры
     var daemonStatus by remember { mutableStateOf(StatusResponse(running = false)) }
+    // Определение текущей запущенной сборки на основе статуса демона
     val runningBuild = remember(daemonStatus, buildList.size) {
         if (daemonStatus.running) buildList.find { it.name == daemonStatus.buildName } else null
     }
-    // --- End MLGD Integration ---
 
+    // --- Состояния видимости диалогов и окон ---
     var showAddBuildDialog by remember { mutableStateOf(false) }
     var showJavaManagerWindow by remember { mutableStateOf(false) }
     var showAccountScreen by remember { mutableStateOf(false) }
     var showDownloadsPopup by remember { mutableStateOf(false) }
     var showBuildSettingsScreen by remember { mutableStateOf<MinecraftBuild?>(null) }
-    var errorDialogMessage by remember { mutableStateOf<String?>(null) }
-    var buildToDelete by remember { mutableStateOf<MinecraftBuild?>(null) }
+    var errorDialogMessage by remember { mutableStateOf<String?>(null) } // Сообщение для диалога об ошибке
+    var buildToDelete by remember { mutableStateOf<MinecraftBuild?>(null) } // Сборка, выбранная для удаления
     var showGameConsole by remember { mutableStateOf(false) }
-    var showRamWarningDialog by remember { mutableStateOf<MinecraftBuild?>(null) }
+    var showRamWarningDialog by remember { mutableStateOf<MinecraftBuild?>(null) } // Диалог с предупреждением о нехватке ОЗУ
 
+    // --- Состояния процесса запуска ---
     var isLaunchingBuildId by remember { mutableStateOf<String?>(null) }
     var showCheckmark by remember { mutableStateOf(false) }
 
@@ -134,8 +186,8 @@ fun App(
             delay(2000) // Poll every 2 seconds
         }
     }
-    // --- End MLGD Integration ---
 
+    // Эффект для синхронизации сборок при первом запуске.
     LaunchedEffect(Unit) {
         val (synchronizedBuilds, newCount) = withContext(Dispatchers.IO) {
             buildManager.synchronizeBuilds()
@@ -150,6 +202,7 @@ fun App(
         }
     }
 
+    // Функция для принудительного обновления списка сборок из файлов.
     fun refreshBuilds() {
         scope.launch {
             val freshBuilds = withContext(Dispatchers.IO) {
@@ -160,6 +213,7 @@ fun App(
         }
     }
 
+    // Эффект для отображения "галочки" после завершения всех загрузок.
     LaunchedEffect(DownloadManager.tasks.size) {
         if (DownloadManager.tasks.isEmpty() && !showCheckmark) {
             showCheckmark = true
@@ -168,9 +222,9 @@ fun App(
         }
     }
 
-    // --- MLGD Integration: launchMinecraft function ---
+    // Функция для запуска Minecraft через MLGD.
     suspend fun launchMinecraft(build: MinecraftBuild, javaPath: String, account: Account) {
-        try {
+        runCatching {
             if (appState.settings.showConsoleOnLaunch) {
                 showGameConsole = true
             }
@@ -185,19 +239,20 @@ fun App(
                     javaPath = javaPath,
                     maxRamMb = finalMaxRam,
                     javaArgs = finalJavaArgs,
-                    envVars = finalEnvVars
+                    envVars = finalEnvVars,
+                    showConsole = appState.settings.showConsoleOnLaunch
                 )
             }
             val newStatus = MLGDClient.launch(launchConfig)
             daemonStatus = newStatus
-        } catch (e: Exception) {
-            e.printStackTrace()
+        }.onFailure { e ->
+            println(e.stackTraceToString())
             errorDialogMessage = "Ошибка запуска: ${e.message}"
             isLaunchingBuildId = null
         }
     }
-    // --- End MLGD Integration ---
 
+    // Лямбда, инкапсулирующая логику подготовки к запуску (включая авто-поиск Java).
     val performLaunch: (MinecraftBuild) -> Unit = { build ->
         isLaunchingBuildId = build.name
         scope.launch {
@@ -230,7 +285,7 @@ fun App(
         }
     }
 
-    // --- MLGD Integration: onLaunchClick ---
+    // Обработчик нажатия на кнопку "Играть".
     val onLaunchClick: (MinecraftBuild) -> Unit = onLaunchClick@{ build ->
         if (currentAccount == null) {
             errorDialogMessage = "Сначала выберите аккаунт!"
@@ -241,6 +296,7 @@ fun App(
             return@onLaunchClick
         }
 
+        // Проверка доступной оперативной памяти перед запуском.
         val osBean = ManagementFactory.getOperatingSystemMXBean() as OperatingSystemMXBean
         val freeMemory = osBean.freeMemorySize / (1024 * 1024)
         val allocatedRam = build.maxRamMb ?: appState.settings.maxRamMb
@@ -251,25 +307,29 @@ fun App(
             performLaunch(build)
         }
     }
-    // --- End MLGD Integration ---
 
+    // Обработчик нажатия на кнопку удаления сборки.
     val onDeleteBuildClick: (MinecraftBuild) -> Unit = { build ->
         buildToDelete = build
     }
 
+    // Обработчик нажатия на кнопку настроек сборки.
     val onSettingsBuildClick: (MinecraftBuild) -> Unit = { build ->
         showBuildSettingsScreen = build
     }
 
+    // Основная тема и разметка приложения.
     AnimatedAppTheme(appState.settings.theme) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             containerColor = MaterialTheme.colorScheme.background
         ) {
+            // Анимированные отступы для контента в зависимости от положения навигационной панели.
             val contentPaddingStart by animateDpAsState(if (appState.settings.navPanelPosition == NavPanelPosition.Left && currentTab != AppTab.Modifications) 96.dp else 0.dp)
             val contentPaddingBottom by animateDpAsState(if (appState.settings.navPanelPosition == NavPanelPosition.Bottom && currentTab != AppTab.Modifications) 80.dp else 0.dp)
 
             Box(modifier = Modifier.fillMaxSize()) {
+                // Плавный переход между экранами (вкладками).
                 Box(modifier = Modifier.fillMaxSize().padding(start = contentPaddingStart, bottom = contentPaddingBottom)) {
                     Crossfade(targetState = currentTab, animationSpec = tween(300)) { tab ->
                         when (tab) {
@@ -307,6 +367,7 @@ fun App(
                     }
                 }
 
+                // Боковая навигационная панель (слева).
                 AnimatedVisibility(
                     visible = appState.settings.navPanelPosition == NavPanelPosition.Left && currentTab != AppTab.Modifications,
                     enter = slideInHorizontally(initialOffsetX = { -it }),
@@ -329,27 +390,28 @@ fun App(
                             NavigationRailItem(
                                 selected = currentTab == AppTab.Home,
                                 onClick = { currentTab = AppTab.Home },
-                                icon = { Icon(Icons.Default.Home, contentDescription = "Главная") },
-                                label = { Text("Главная") }
+                                icon = { Icon(Icons.Default.Home, contentDescription = stringResource(Res.string.tab_home)) },
+                                label = { Text(stringResource(Res.string.tab_home)) }
                             )
                             Spacer(Modifier.height(16.dp))
                             NavigationRailItem(
                                 selected = currentTab == AppTab.Modifications,
                                 onClick = { currentTab = AppTab.Modifications },
-                                icon = { Icon(Icons.Default.Build, contentDescription = "Модификации") },
-                                label = { Text("Модификации") }
+                                icon = { Icon(Icons.Default.Build, contentDescription = stringResource(Res.string.tab_modifications)) },
+                                label = { Text(stringResource(Res.string.tab_modifications)) }
                             )
                             Spacer(Modifier.height(16.dp))
                             NavigationRailItem(
                                 selected = currentTab == AppTab.Settings,
                                 onClick = { currentTab = AppTab.Settings },
-                                icon = { Icon(Icons.Default.Settings, contentDescription = "Настройки") },
-                                label = { Text("Настройки") }
+                                icon = { Icon(Icons.Default.Settings, contentDescription = stringResource(Res.string.tab_settings)) },
+                                label = { Text(stringResource(Res.string.tab_settings)) }
                             )
                         }
                     }
                 }
 
+                // Нижняя навигационная панель.
                 AnimatedVisibility(
                     visible = appState.settings.navPanelPosition == NavPanelPosition.Bottom && currentTab != AppTab.Modifications,
                     enter = slideInVertically(initialOffsetY = { it }),
@@ -368,24 +430,25 @@ fun App(
                         NavigationBarItem(
                             selected = currentTab == AppTab.Home,
                             onClick = { currentTab = AppTab.Home },
-                            icon = { Icon(Icons.Default.Home, contentDescription = "Главная") },
-                            label = { Text("Главная") }
+                            icon = { Icon(Icons.Default.Home, contentDescription = stringResource(Res.string.tab_home)) },
+                            label = { Text(stringResource(Res.string.tab_home)) }
                         )
                         NavigationBarItem(
                             selected = currentTab == AppTab.Modifications,
                             onClick = { currentTab = AppTab.Modifications },
-                            icon = { Icon(Icons.Default.Build, contentDescription = "Модификации") },
-                            label = { Text("Модификации") }
+                            icon = { Icon(Icons.Default.Build, contentDescription = stringResource(Res.string.tab_modifications)) },
+                            label = { Text(stringResource(Res.string.tab_modifications)) }
                         )
                         NavigationBarItem(
                             selected = currentTab == AppTab.Settings,
                             onClick = { currentTab = AppTab.Settings },
-                            icon = { Icon(Icons.Default.Settings, contentDescription = "Настройки") },
-                            label = { Text("Настройки") }
+                            icon = { Icon(Icons.Default.Settings, contentDescription = stringResource(Res.string.tab_settings)) },
+                            label = { Text(stringResource(Res.string.tab_settings)) }
                         )
                     }
                 }
 
+                // Кнопка (FAB) для отображения статуса и списка загрузок.
                 val hasActiveDownloads = DownloadManager.tasks.isNotEmpty()
                 AnimatedVisibility(
                     visible = hasActiveDownloads || showCheckmark,
@@ -418,41 +481,35 @@ fun App(
             }
         }
 
-        if (showJavaManagerWindow) {
-            JavaManagerWindow(
-                onCloseRequest = { showJavaManagerWindow = false },
-                javaManager = javaManager,
-                javaDownloader = javaDownloader,
-                appSettings = appState.settings
-            )
-        }
-        if (showAddBuildDialog) {
-            AddBuildDialog(
-                onDismiss = { showAddBuildDialog = false },
-                onAdd = { name, version, type, imagePath ->
-                    scope.launch {
-                        try {
-                            buildManager.addBuild(name, version, type, imagePath)
-                            refreshBuilds()
-                            showAddBuildDialog = false
-                        } catch (e: Exception) {
-                            errorDialogMessage = e.message
-                        }
+        // Компонент для отображения всех оверлеев (диалоги, всплывающие окна).
+        AppOverlays(
+            appState = appState,
+            showJavaManagerWindow = showJavaManagerWindow,
+            onCloseJavaManagerWindow = { showJavaManagerWindow = false },
+            javaManager = javaManager,
+            javaDownloader = javaDownloader,
+            showAddBuildDialog = showAddBuildDialog,
+            onCloseAddBuildDialog = { showAddBuildDialog = false },
+            onAddBuild = { name, version, type, imagePath ->
+                scope.launch {
+                    runCatching {
+                        buildManager.addBuild(name, version, type, imagePath)
+                        refreshBuilds()
+                        showAddBuildDialog = false
+                    }.onFailure { e ->
+                        errorDialogMessage = e.message
                     }
-                },
-                pathManager = pathManager
-            )
-        }
-        showBuildSettingsScreen?.let { build ->
-            BuildSettingsScreen(
-                build = build,
-                globalSettings = appState.settings,
-                onDismiss = { showBuildSettingsScreen = null },
-                onSave = { newName, newVersion, newType, newImagePath, javaPath, maxRam, javaArgs, envVars ->
-                    scope.launch {
-                        try {
+                }
+            },
+            pathManager = pathManager,
+            buildSettingsToShow = showBuildSettingsScreen,
+            onCloseBuildSettings = { showBuildSettingsScreen = null },
+            onSaveBuildSettings = { newName, newVersion, newType, newImagePath, javaPath, maxRam, javaArgs, envVars ->
+                scope.launch {
+                    runCatching {
+                        showBuildSettingsScreen?.let {
                             buildManager.updateBuildSettings(
-                                oldName = build.name,
+                                oldName = it.name,
                                 newName = newName,
                                 newVersion = newVersion,
                                 newType = newType,
@@ -462,228 +519,263 @@ fun App(
                                 newJavaArgs = javaArgs,
                                 newEnvVars = envVars
                             )
-                            refreshBuilds()
-                            showBuildSettingsScreen = null
-                        } catch (e: Exception) {
-                            errorDialogMessage = e.message
                         }
+                        refreshBuilds()
+                        showBuildSettingsScreen = null
+                    }.onFailure { e ->
+                        errorDialogMessage = e.message
                     }
-                },
-                pathManager = pathManager
-            )
-        }
-        if (showAccountScreen) {
-            AccountScreen(
-                accountManager = accountManager,
-                onDismiss = { showAccountScreen = false },
-                onAccountSelected = {
-                    currentAccount = it
-                    showAccountScreen = false
                 }
-            )
-        }
-        if (showGameConsole) {
-            GameConsoleWindow(onCloseRequest = { showGameConsole = false })
-        }
-        showRamWarningDialog?.let { build ->
-            AlertDialog(
-                onDismissRequest = { showRamWarningDialog = null; isLaunchingBuildId = null },
-                title = { Text("Предупреждение") },
-                text = { Text("Вы выделили больше ОЗУ, чем доступно в системе. Это может привести к проблемам с производительностью или запуском. Продолжить?") },
-                confirmButton = {
-                    Button(onClick = {
-                        showRamWarningDialog = null
-                        performLaunch(build)
-                    }) { Text("Все равно запустить") }
-                },
-                dismissButton = {
-                    Button(onClick = { showRamWarningDialog = null; isLaunchingBuildId = null }) { Text("Отмена") }
+            },
+            showAccountScreen = showAccountScreen,
+            onCloseAccountScreen = { showAccountScreen = false },
+            onAccountSelected = {
+                currentAccount = it
+                showAccountScreen = false
+            },
+            accountManager = accountManager,
+            showGameConsole = showGameConsole,
+            onCloseGameConsole = { showGameConsole = false },
+            ramWarningDialogToShow = showRamWarningDialog,
+            onCloseRamWarningDialog = { showRamWarningDialog = null; isLaunchingBuildId = null },
+            onConfirmRamWarning = { build ->
+                showRamWarningDialog = null
+                performLaunch(build)
+            },
+            errorDialogMessage = errorDialogMessage,
+            onDismissErrorDialog = { errorDialogMessage = null },
+            buildToDelete = buildToDelete,
+            onDismissDeleteDialog = { buildToDelete = null },
+            onConfirmDelete = { build ->
+                scope.launch {
+                    buildsPendingDeletion.add(build.name)
+                    buildToDelete = null
+                    delay(400)
+                    buildManager.deleteBuild(build.name)
+                    buildList.removeIf { it.name == build.name }
+                    buildsPendingDeletion.remove(build.name)
                 }
-            )
-        }
-        errorDialogMessage?.let { message ->
-            AlertDialog(
-                onDismissRequest = { errorDialogMessage = null },
-                title = { Text("Ошибка") },
-                text = { Text(message) },
-                confirmButton = { Button(onClick = { errorDialogMessage = null }) { Text("OK") } }
-            )
-        }
-        buildToDelete?.let { build ->
-            AlertDialog(
-                onDismissRequest = { buildToDelete = null },
-                title = { Text("Подтверждение") },
-                text = { Text("Вы уверены, что хотите удалить сборку '${build.name}'?") },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                buildsPendingDeletion.add(build.name)
-                                buildToDelete = null
-                                delay(400)
-                                buildManager.deleteBuild(build.name)
-                                buildList.removeIf { it.name == build.name }
-                                buildsPendingDeletion.remove(build.name)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                    ) { Text("Удалить") }
-                },
-                dismissButton = { Button(onClick = { buildToDelete = null }) { Text("Отмена") } }
-            )
-        }
-    }
-}
-
-
-@Composable
-fun BeautifulCircularProgressIndicator(
-    modifier: Modifier = Modifier,
-    size: androidx.compose.ui.unit.Dp = 24.dp,
-    strokeWidth: androidx.compose.ui.unit.Dp = 3.dp,
-    primaryColor: Color = MaterialTheme.colorScheme.primary,
-    secondaryColor: Color = MaterialTheme.colorScheme.tertiary
-) {
-    val transition = rememberInfiniteTransition()
-
-    val rotation by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearEasing)
+            }
         )
-    )
-
-    Canvas(modifier = modifier.size(size)) {
-        rotate(rotation) {
-            drawCircle(
-                brush = Brush.sweepGradient(
-                    listOf(
-                        Color.Transparent,
-                        primaryColor.copy(alpha = 0.5f),
-                        primaryColor,
-                        secondaryColor
-                    )
-                ),
-                radius = size.toPx() / 2 - strokeWidth.toPx() / 2,
-                style = Stroke(
-                    width = strokeWidth.toPx(),
-                    cap = StrokeCap.Round
-                )
-            )
-        }
-    }
-}
-fun openFolder(path: String) = runCatching { Desktop.getDesktop().open(File(path)) }
-
-fun openUri(uri: URI) {
-    val os = System.getProperty("os.name").lowercase()
-    runCatching {
-        if (os.contains("win")) {
-            Desktop.getDesktop().browse(uri)
-        } else if (os.contains("nix") || os.contains("nux") || os.contains("aix")) {
-            Runtime.getRuntime().exec(arrayOf("xdg-open", uri.toString()))
-        } else if (os.contains("mac")) {
-            Runtime.getRuntime().exec(arrayOf("open", uri.toString()))
-        } else {
-            Desktop.getDesktop().browse(uri)
-        }
     }
 }
 
+/**
+ * Компонент, который управляет отображением всех модальных окон и диалогов поверх основного интерфейса.
+ */
+@Composable
+fun AppOverlays(
+    appState: AppState,
+    showJavaManagerWindow: Boolean,
+    onCloseJavaManagerWindow: () -> Unit,
+    javaManager: JavaManager,
+    javaDownloader: JavaDownloader,
+    showAddBuildDialog: Boolean,
+    onCloseAddBuildDialog: () -> Unit,
+    onAddBuild: (String, String, BuildType, String?) -> Unit,
+    pathManager: PathManager,
+    buildSettingsToShow: MinecraftBuild?,
+    onCloseBuildSettings: () -> Unit,
+    onSaveBuildSettings: (String, String, BuildType, String?, String?, Int?, String?, String?) -> Unit,
+    showAccountScreen: Boolean,
+    onCloseAccountScreen: () -> Unit,
+    onAccountSelected: (Account) -> Unit,
+    accountManager: AccountManager,
+    showGameConsole: Boolean,
+    onCloseGameConsole: () -> Unit,
+    ramWarningDialogToShow: MinecraftBuild?,
+    onCloseRamWarningDialog: () -> Unit,
+    onConfirmRamWarning: (MinecraftBuild) -> Unit,
+    errorDialogMessage: String?,
+    onDismissErrorDialog: () -> Unit,
+    buildToDelete: MinecraftBuild?,
+    onDismissDeleteDialog: () -> Unit,
+    onConfirmDelete: (MinecraftBuild) -> Unit
+) {
+    if (showJavaManagerWindow) {
+        JavaManagerWindow(
+            onCloseRequest = onCloseJavaManagerWindow,
+            javaManager = javaManager,
+            javaDownloader = javaDownloader,
+            appSettings = appState.settings
+        )
+    }
+    if (showAddBuildDialog) {
+        AddBuildDialog(
+            onDismiss = onCloseAddBuildDialog,
+            onAdd = onAddBuild,
+            pathManager = pathManager
+        )
+    }
+    buildSettingsToShow?.let { build ->
+        BuildSettingsScreen(
+            build = build,
+            globalSettings = appState.settings,
+            onDismiss = onCloseBuildSettings,
+            onSave = onSaveBuildSettings,
+            pathManager = pathManager
+        )
+    }
+    if (showAccountScreen) {
+        AccountScreen(
+            accountManager = accountManager,
+            onDismiss = onCloseAccountScreen,
+            onAccountSelected = onAccountSelected
+        )
+    }
+    if (showGameConsole) {
+        GameConsoleWindow(onCloseRequest = onCloseGameConsole)
+    }
+    ramWarningDialogToShow?.let { build ->
+        RamWarningDialog(
+            build = build,
+            onDismiss = onCloseRamWarningDialog,
+            onConfirm = { onConfirmRamWarning(build) }
+        )
+    }
+    errorDialogMessage?.let { message ->
+        ErrorDialog(
+            message = message,
+            onDismiss = onDismissErrorDialog
+        )
+    }
+    buildToDelete?.let { build ->
+        ConfirmDeleteDialog(
+            build = build,
+            onDismiss = onDismissDeleteDialog,
+            onConfirm = { onConfirmDelete(build) }
+        )
+    }
+}
+
+// Запечатанный класс для представления различных экранов приложения.
 private sealed class Screen {
-    object Splash : Screen()
-    object FirstRunWizard : Screen()
-    data class MainApp(val state: AppState) : Screen()
+    object Splash : Screen() // Экран-заставка
+    object FirstRunWizard : Screen() // Мастер первоначальной настройки
+    data class MainApp(val state: AppState) : Screen() // Основной экран приложения
 }
 
+// Класс данных, хранящий полное состояние приложения.
 data class AppState(
     val settings: AppSettings,
     val builds: List<MinecraftBuild>,
     val accounts: List<Account>
 )
 
+// Флаг, указывающий, что основной контент готов к отображению (используется для скрытия сплеш-скрина).
 var isContentReady by mutableStateOf(false)
 
-fun main() {
-    val os = System.getProperty("os.name").lowercase()
-    if (!os.contains("mac")) {
-        val renderApi = try {
-            Class.forName("org.jetbrains.skiko.vulkan.VulkanWindow")
-            "VULKAN"
-        } catch (e: Throwable) {
-            "OPENGL"
+private fun createAndShowSplashScreen(statusLabel: JLabel): JWindow? {
+    return runCatching {
+        JWindow().apply {
+            val props = Properties().apply {
+                Thread.currentThread().contextClassLoader.getResourceAsStream("app.properties")?.use(::load)
+            }
+            val version = props.getProperty("version", "Unknown")
+            val buildNumber = props.getProperty("buildNumber", "N/A")
+            val versionText = "$version ($buildNumber)"
+
+            val versionLabel = JLabel(versionText, SwingConstants.RIGHT).apply {
+                foreground = java.awt.Color.WHITE
+            }
+            statusLabel.apply {
+                foreground = java.awt.Color.WHITE
+                horizontalAlignment = SwingConstants.RIGHT
+            }
+
+            val originalImage = ImageIO.read(Thread.currentThread().contextClassLoader.getResource("banner.png"))
+            val screenSize = Toolkit.getDefaultToolkit().screenSize
+            val targetWidth = screenSize.width / 2.5
+            val targetHeight = screenSize.height / 2.5
+            val ratio = min(targetWidth / originalImage.width, targetHeight / originalImage.height)
+            val newWidth = (originalImage.width * ratio).toInt()
+            val newHeight = (originalImage.height * ratio).toInt()
+            val finalImage = originalImage.getScaledInstance(newWidth, newHeight, Image.SCALE_SMOOTH)
+
+            contentPane = JLayeredPane().apply {
+                preferredSize = Dimension(newWidth, newHeight)
+                val margin = 10
+                
+                add(JLabel(ImageIcon(finalImage)).apply {
+                    setBounds(0, 0, newWidth, newHeight)
+                }, JLayeredPane.DEFAULT_LAYER)
+                
+                add(statusLabel.apply {
+                    setBounds(0, newHeight - 30 - margin, newWidth - margin, 20)
+                }, JLayeredPane.PALETTE_LAYER)
+
+                add(versionLabel.apply {
+                    setBounds(0, newHeight - 15 - margin, newWidth - margin, 20)
+                }, JLayeredPane.PALETTE_LAYER)
+            }
+            pack()
+            setLocationRelativeTo(null)
+            isVisible = true
         }
-        System.setProperty("skiko.renderApi", renderApi)
-        println("Using render API: $renderApi")
+    }.onFailure {
+        println("Failed to create splash screen: ${it.stackTraceToString()}")
+    }.getOrNull()
+}
+
+// Главная функция, точка входа в приложение.
+@OptIn(ExperimentalResourceApi::class)
+fun main() {
+    runBlocking(Dispatchers.IO) {
+        val pathManager = PathManager(PathManager.getDefaultAppDataDirectory())
+        val settingsManager = SettingsManager(pathManager)
+        val settings = settingsManager.loadSettings()
+        Locale.setDefault(Locale(settings.language))
     }
 
-    val splash = JWindow()
-    val statusLabel = JLabel("Initializing...", SwingConstants.RIGHT)
-
-    try {
-        val props = Properties()
-        Thread.currentThread().contextClassLoader.getResourceAsStream("app.properties")?.use { props.load(it) }
-        val version = props.getProperty("version", "Unknown")
-        val buildNumber = props.getProperty("buildNumber", "N/A")
-        val versionText = "$version ($buildNumber)"
-
-        val versionLabel = JLabel(versionText, SwingConstants.RIGHT)
-        versionLabel.foreground = java.awt.Color.WHITE
-        statusLabel.foreground = java.awt.Color.WHITE
-
-        val originalImage = ImageIO.read(Thread.currentThread().contextClassLoader.getResource("banner.png"))
-        val screenSize = Toolkit.getDefaultToolkit().screenSize
-        val targetWidth = screenSize.width / 2.5
-        val targetHeight = screenSize.height / 2.5
-        val imageWidth = originalImage.width
-        val imageHeight = originalImage.height
-        val ratio = min(targetWidth / imageWidth, targetHeight / imageHeight)
-        val newWidth = (imageWidth * ratio).toInt()
-        val newHeight = (imageHeight * ratio).toInt()
-        val finalImage = originalImage.getScaledInstance(newWidth, newHeight, Image.SCALE_SMOOTH)
-        
-        val layeredPane = JLayeredPane()
-        layeredPane.preferredSize = Dimension(newWidth, newHeight)
-
-        val imageLabel = JLabel(ImageIcon(finalImage))
-        imageLabel.setBounds(0, 0, newWidth, newHeight)
-        
-        val margin = 10
-        statusLabel.setBounds(0, newHeight - 30 - margin, newWidth - margin, 20)
-        versionLabel.setBounds(0, newHeight - 15 - margin, newWidth - margin, 20)
-
-        layeredPane.add(imageLabel, JLayeredPane.DEFAULT_LAYER)
-        layeredPane.add(statusLabel, JLayeredPane.PALETTE_LAYER)
-        layeredPane.add(versionLabel, JLayeredPane.PALETTE_LAYER)
-
-        splash.contentPane.add(layeredPane)
-        splash.pack()
-        splash.setLocationRelativeTo(null)
-        splash.isVisible = true
-    } catch (e: Exception) {
-        e.printStackTrace()
+    // Попытка установить оптимальный рендер-API (Vulkan или OpenGL) для Skiko.
+    runCatching {
+        val os = System.getProperty("os.name").lowercase()
+        if (!os.contains("mac")) {
+            val renderApi = try {
+                Class.forName("org.jetbrains.skiko.vulkan.VulkanWindow")
+                "VULKAN"
+            } catch (_: Throwable) {
+                "OPENGL"
+            }
+            System.setProperty("skiko.renderApi", renderApi)
+            println("Using render API: $renderApi")
+        }
     }
 
+    // Создание и отображение сплеш-скрина с помощью Swing.
+    val statusLabel = JLabel("Initializing...")
+    val splash = createAndShowSplashScreen(statusLabel)
+
+    // Запуск и проверка доступности демона MLGD.
     runBlocking {
         val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
         SwingUtilities.invokeLater { statusLabel.text = "Starting daemon..." }
-        try {
+        runCatching {
             MLGDClient.ensureDaemonRunning(pathManager.getLauncherDir())
-        } catch (e: Exception) {
-            e.printStackTrace()
-            splash.isVisible = false
+        }.onFailure { e ->
+            println(e.stackTraceToString())
+            splash?.isVisible = false
             JOptionPane.showMessageDialog(null, "Could not start or connect to MLGD daemon.\n${e.message}", "Fatal Error", JOptionPane.ERROR_MESSAGE)
             return@runBlocking
         }
     }
 
+    // Запуск основного цикла приложения Compose.
     application {
         var currentScreen by remember { mutableStateOf<Screen>(Screen.Splash) }
         var appState by remember { mutableStateOf<AppState?>(null) }
         val scope = rememberCoroutineScope()
-        val icon = painterResource("logo.ico")
 
+        // Выбор иконки приложения в зависимости от времени года (зима/не зима).
+        val month = OffsetDateTime.now().month // TODO: Перенести в ресурсы
+        val isWinter = month == Month.DECEMBER || month == Month.JANUARY || month == Month.FEBRUARY
+        val icon = if (isWinter) {
+            painterResource(Res.drawable.MLicon_snow)
+        } else {
+            painterResource(Res.drawable.MLicon)
+        }
+
+        // Ленивая инициализация менеджеров.
         val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
         val settingsManager by lazy { SettingsManager(pathManager) }
         val buildManager by lazy { BuildManager(pathManager) }
@@ -693,13 +785,15 @@ fun main() {
         val cacheManager by lazy { CacheManager(pathManager) }
         val modrinthApi by lazy { ModrinthApi(cacheManager) }
 
+        // Эффект для скрытия сплеш-скрина, когда контент готов.
         LaunchedEffect(isContentReady) {
             if (isContentReady) {
-                splash.isVisible = false
-                splash.dispose()
+                splash?.isVisible = false
+                splash?.dispose()
             }
         }
 
+        // Главный эффект, который управляет переключением между экранами (Splash -> Wizard/MainApp).
         LaunchedEffect(currentScreen) {
             if (currentScreen is Screen.Splash) {
                 isContentReady = false
@@ -709,6 +803,7 @@ fun main() {
                             currentScreen = Screen.FirstRunWizard
                         }
                     } else {
+                        // Асинхронная загрузка всех необходимых данных.
                         SwingUtilities.invokeLater { statusLabel.text = "Loading UI..." }
                         val settingsJob = async { settingsManager.loadSettings() }
                         val buildsJob = async { buildManager.loadBuilds() }
@@ -728,6 +823,7 @@ fun main() {
             }
         }
 
+        // Рендеринг текущего экрана в зависимости от состояния.
         when (currentScreen) {
             is Screen.Splash -> { /* Ничего не делаем, сплеш уже показан */ }
             is Screen.FirstRunWizard -> {
@@ -735,8 +831,8 @@ fun main() {
                 Window(
                     onCloseRequest = {
                         scope.launch {
+                            // Корректное завершение работы.
                             MLGDClient.shutdown()
-                            ImageLoader.close()
                             modrinthApi.close()
                             exitApplication()
                         }
@@ -767,14 +863,14 @@ fun main() {
                 appState?.let { state ->
                     Window(
                         onCloseRequest = {
+                            // Корректное завершение работы.
                             scope.launch {
                                 MLGDClient.shutdown()
-                                ImageLoader.close()
                                 modrinthApi.close()
                                 exitApplication()
                             }
                         },
-                        title = "Materia",
+                        title = stringResource(Res.string.app_name),
                         visible = isContentReady,
                         icon = icon,
                         state = rememberWindowState(width = 1024.dp, height = 768.dp)

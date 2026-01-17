@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package ui
+package ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -91,7 +91,7 @@ fun FirstRunWizard(
             OutlinedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Внешний вид", style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Text("Тема", style = MaterialTheme.typography.titleMedium)
                     val themeOptions = Theme.values().map { it.name }
@@ -105,7 +105,7 @@ fun FirstRunWizard(
                         }
                     }
 
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Text("Положение панели навигации", style = MaterialTheme.typography.titleMedium)
                     val navPanelOptions = NavPanelPosition.values().map { it.name }

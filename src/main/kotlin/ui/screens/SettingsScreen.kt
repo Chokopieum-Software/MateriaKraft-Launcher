@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package ui
+package ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -30,7 +30,9 @@ import androidx.compose.ui.unit.dp
 import funlauncher.AppSettings
 import funlauncher.NavPanelPosition
 import funlauncher.Theme
-import openUri
+import funlauncher.openUri
+import java.awt.Desktop
+import ui.dialogs.LaunchSettingsDialog
 import java.io.File
 import java.net.URI
 import java.util.Properties
@@ -139,6 +141,22 @@ private fun AppearanceSettings(
     currentSettings: AppSettings,
     onSave: (AppSettings) -> Unit
 ) {
+    var showRestartDialog by remember { mutableStateOf(false) }
+    val languages = remember { mapOf("ru" to "Русский", "en" to "English") }
+
+    if (showRestartDialog) {
+        AlertDialog(
+            onDismissRequest = { showRestartDialog = false },
+            title = { Text("Перезапуск требуется") },
+            text = { Text("Для применения нового языка необходимо перезапустить приложение.") },
+            confirmButton = {
+                Button(onClick = { showRestartDialog = false }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -174,6 +192,43 @@ private fun AppearanceSettings(
                             selected = currentSettings.navPanelPosition.name == label
                         ) {
                             Text(label)
+                        }
+                    }
+                }
+            }
+        }
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Язык (требуется перезапуск)", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(16.dp))
+                var expanded by remember { mutableStateOf(false) }
+
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded }
+                ) {
+                    OutlinedTextField(
+                        value = languages[currentSettings.language] ?: currentSettings.language,
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        languages.forEach { (code, name) ->
+                            DropdownMenuItem(
+                                text = { Text(name) },
+                                onClick = {
+                                    if (currentSettings.language != code) {
+                                        onSave(currentSettings.copy(language = code))
+                                        showRestartDialog = true
+                                    }
+                                    expanded = false
+                                }
+                            )
                         }
                     }
                 }

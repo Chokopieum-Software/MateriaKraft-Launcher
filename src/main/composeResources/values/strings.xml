@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">Materia</string>
+    <string name="tab_home">Home</string>
+    <string name="tab_modifications">Modifications</string>
+    <string name="tab_settings">Settings</string>
+    <string name="search_placeholder">Search...</string>
+    <string name="back">Back</string>
+    <string name="versions">Versions</string>
+    <string name="categories">Categories</string>
+    <string name="loaders">Loaders</string>
+    <string name="install">Install</string>
+    <string name="select_a_build">Select a build</string>
+    <string name="no_compatible_builds">No compatible builds found.</string>
+    <string name="cancel">Cancel</string>
+    <string name="error_search">Search error: %1$s</string>
+    <string name="error_project_load">Project loading error: %1$s</string>
+    <string name="error_version_load">Version loading error: %1$s</string>
+    <string name="retry">Retry</string>
+    <string name="download_started">Download of '%1$s' has started.</string>
+    <string name="error_install">Installation error: %1$s</string>
+    <string name="included">Included</string>
+    <string name="excluded">Excluded</string>
+</resources>

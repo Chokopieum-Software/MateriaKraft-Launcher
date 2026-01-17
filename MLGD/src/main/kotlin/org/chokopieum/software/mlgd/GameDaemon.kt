@@ -5,6 +5,35 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 
 /**
+ * Простой логгер в файл для игровых сессий.
+ * Создает файл в указанной директории.
+ */
+class FileLogger(logDir: String, logFileName: String) {
+    private val logFile: File
+
+    init {
+        val directory = File(logDir)
+        if (!directory.exists()) {
+            directory.mkdirs()
+        }
+        logFile = File(directory, logFileName)
+    }
+
+    /**
+     * Записывает строку в лог-файл.
+     * @param message Сообщение для записи.
+     */
+    fun log(message: String) {
+        try {
+            logFile.appendText("$message\n", StandardCharsets.UTF_8)
+        } catch (e: Exception) {
+            // Если не удалось записать в лог игры, пишем ошибку в главный лог демона
+            DebugLogger.error("Failed to write to game log ${logFile.name}", e)
+        }
+    }
+}
+
+/**
  * Объект-демон для управления игровым процессом.
  */
 object GameDaemon {
@@ -18,8 +47,6 @@ object GameDaemon {
             add(launchConfig.javaPath)
             addAll(launchConfig.jvmArgs)
 
-            // ИСПРАВЛЕНИЕ: Добавляем -jar только если это файл .jar
-            // Если это Fabric/Forge (класс), флаг -jar не нужен
             if (launchConfig.gameJarPath.endsWith(".jar")) {
                 add("-jar")
             }
@@ -28,17 +55,13 @@ object GameDaemon {
             addAll(launchConfig.gameArgs)
         }
 
-        // DebugLogger.log("Cmd: $command") // Можно раскомментировать для отладки
-
         val processBuilder = ProcessBuilder(command).apply {
             directory(File(launchConfig.workingDir))
-            // Добавляем переменные окружения
             environment().putAll(launchConfig.envVars)
         }
 
         val process = processBuilder.start()
 
-        // Используем UTF-8 для чтения логов
         Thread {
             process.inputStream.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
                 lines.forEach(onOutput)
@@ -57,7 +80,6 @@ object GameDaemon {
 
 /**
  * Конфигурация запуска (DTO).
- * Main.kt ругается, потому что не видит этот класс.
  */
 @Serializable
 data class LaunchConfig(
@@ -67,5 +89,7 @@ data class LaunchConfig(
     val gameJarPath: String,
     val gameArgs: List<String> = emptyList(),
     val workingDir: String,
+    val logsPath: String,
+    val showConsole: Boolean = false, // Новый параметр для отображения консоли
     val envVars: Map<String, String> = emptyMap()
 )

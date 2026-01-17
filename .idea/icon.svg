@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="512"
+   height="512"
+   viewBox="0 0 512 512"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="MLicons.svg"
+   inkscape:version="1.4.3 (0d15f75042, 2025-12-25)"
+   inkscape:export-filename="MLicons2.svg"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px"
+     inkscape:zoom="0.85546875"
+     inkscape:cx="265.3516"
+     inkscape:cy="240.80365"
+     inkscape:window-width="1366"
+     inkscape:window-height="644"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1"
+     showguides="true" />
+  <defs
+     id="defs1">
+    <rect
+       x="223.26941"
+       y="204.56621"
+       width="134.42922"
+       height="121.57079"
+       id="rect9" />
+  </defs>
+  <g
+     inkscape:groupmode="layer"
+     id="layer3"
+     inkscape:label="Слой 2">
+    <rect
+       style="fill:#f5fffa;fill-opacity:1;stroke:#3f4cff;stroke-width:5.9;stroke-dasharray:none;stroke-opacity:1"
+       id="rect53"
+       width="470"
+       height="470"
+       x="21"
+       y="21"
+       ry="53.77169" />
+  </g>
+  <g
+     inkscape:label="Слой 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     style="opacity:1">
+    <text
+       xml:space="preserve"
+       id="text9"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:96px;font-family:Monocraft;-inkscape-font-specification:Monocraft;writing-mode:lr-tb;direction:ltr;white-space:pre;shape-inside:url(#rect9);display:inline;fill:#3f4cff;fill-opacity:1;stroke:#3f4cff;stroke-width:5.9;stroke-dasharray:none;stroke-opacity:1"
+       transform="translate(-25.936157,-8.5663656)"><tspan
+         x="223.26953"
+         y="301.89974"
+         id="tspan2">ML</tspan></text>
+    <ellipse
+       style="fill:none;stroke:#3f4cff;stroke-width:5.74208;stroke-dasharray:none;stroke-opacity:1"
+       id="path2"
+       cx="256"
+       cy="256"
+       rx="204.0607"
+       ry="89.503624" />
+    <ellipse
+       style="fill:none;stroke:#3f4cff;stroke-width:5.74208;stroke-dasharray:none;stroke-opacity:1"
+       id="path2-3"
+       cx="-349.70251"
+       cy="93.702499"
+       rx="204.0607"
+       ry="89.503624"
+       transform="rotate(-120)" />
+    <ellipse
+       style="fill:none;stroke:#3f4cff;stroke-width:5.74208;stroke-dasharray:none;stroke-opacity:1"
+       id="path2-3-1"
+       cx="-93.702499"
+       cy="349.70251"
+       rx="204.0607"
+       ry="89.503624"
+       transform="rotate(-60)" />
+  </g>
+</svg>

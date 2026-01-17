@@ -34,19 +34,22 @@ class CacheManager(
         if (cacheFile.exists()) {
             try {
                 val cachedData = json.decodeFromString<T>(cacheFile.readText())
+                println("CacheManager: Успешно загружены данные из кэша для ключа: $key")
                 return cachedData
-            } catch (_: Exception) {
-                // Log error or handle corrupted cache
+            } catch (e: Exception) {
+                println("CacheManager: Ошибка чтения или десериализации кэша для ключа: $key. Удаление файла. Ошибка: ${e.stackTraceToString()}")
                 cacheFile.delete()
             }
         }
 
         return try {
+            println("CacheManager: Данные для ключа: $key не найдены в кэше или кэш поврежден. Выполняем fetcher().")
             val fetchedData = fetcher()
             cacheFile.writeText(json.encodeToString(fetchedData))
+            println("CacheManager: Успешно получены и закэшированы данные для ключа: $key")
             fetchedData
-        } catch (_: Exception) {
-            // Handle fetch error
+        } catch (e: Exception) {
+            println("CacheManager: Ошибка при выполнении fetcher() для ключа: $key. Ошибка: ${e.stackTraceToString()}")
             null
         }
     }

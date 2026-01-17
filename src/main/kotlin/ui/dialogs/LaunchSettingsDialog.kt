@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package ui
+package ui.dialogs
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*

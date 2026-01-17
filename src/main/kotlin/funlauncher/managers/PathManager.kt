@@ -43,11 +43,16 @@ class PathManager(private val rootDir: Path) {
      * Возвращает путь к глобальной папке с библиотеками.
      */
     fun getGlobalLibrariesDir(): Path = getAppDataDirectory().resolve("libraries")
-    
+
     /**
      * Возвращает путь к папке для кэширования манифестов версий.
      */
     fun getCacheDir(): Path = getAppDataDirectory().resolve(".cache")
+
+    /**
+     * Возвращает путь к папке с логами игровых сессий.
+     */
+    fun getLogsDir(): Path = getAppDataDirectory().resolve("logs")
 
     /**
      * Возвращает путь к папке с нативными библиотеками для конкретной сборки.
@@ -79,6 +84,7 @@ class PathManager(private val rootDir: Path) {
         Files.createDirectories(getCacheDir())
         Files.createDirectories(getAppDataDirectory().resolve("jdks"))
         Files.createDirectories(getBackgroundsDir())
+        Files.createDirectories(getLogsDir()) // Добавлено создание папки логов
     }
 
     companion object {

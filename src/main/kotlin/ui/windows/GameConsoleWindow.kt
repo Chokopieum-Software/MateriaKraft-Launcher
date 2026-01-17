@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package ui
+package ui.windows
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize

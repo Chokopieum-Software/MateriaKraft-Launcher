@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package ui
+package ui.dialogs
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState

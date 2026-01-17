@@ -42,11 +42,12 @@ data class AppSettings(
     val javaArgs: String = "",
     val envVars: String = "",
     val javaPath: String = "",
-    val showConsoleOnLaunch: Boolean = false
+    val showConsoleOnLaunch: Boolean = false,
+    val language: String = "ru"
 )
 
 enum class Theme {
-    System, Light, Dark
+    System, Light, Dark, Day, Amoled
 }
 
 enum class NavPanelPosition {

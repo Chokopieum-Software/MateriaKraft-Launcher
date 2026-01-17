@@ -47,7 +47,8 @@ class GameLauncher(
         javaPath: String,
         maxRamMb: Int,
         customJavaArgs: String,
-        envVars: String
+        envVars: String,
+        showConsole: Boolean // Новый параметр
     ): LaunchConfig {
         extractNatives()
         val command = buildLaunchCommand(account, javaPath, maxRamMb, customJavaArgs)
@@ -72,6 +73,8 @@ class GameLauncher(
             gameJarPath = command[mainClassIndex],
             gameArgs = gameArgs,
             workingDir = gameDir.toAbsolutePath().toString(),
+            logsPath = pathManager.getLogsDir().toAbsolutePath().toString(),
+            showConsole = showConsole, // Передаем значение
             envVars = envMap
         )
     }

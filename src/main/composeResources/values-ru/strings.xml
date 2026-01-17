@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">Materia</string>
+    <string name="tab_home">Главная</string>
+    <string name="tab_modifications">Модификации</string>
+    <string name="tab_settings">Настройки</string>
+    <string name="search_placeholder">Поиск...</string>
+    <string name="back">Назад</string>
+    <string name="versions">Версии</string>
+    <string name="categories">Категории</string>
+    <string name="loaders">Загрузчики</string>
+    <string name="install">Установить</string>
+    <string name="select_a_build">Выберите сборку</string>
+    <string name="no_compatible_builds">Совместимых сборок не найдено.</string>
+    <string name="cancel">Отмена</string>
+    <string name="error_search">Ошибка поиска: %1$s</string>
+    <string name="error_project_load">Ошибка загрузки проекта: %1$s</string>
+    <string name="error_version_load">Ошибка загрузки версий: %1$s</string>
+    <string name="retry">Повторить</string>
+    <string name="download_started">Загрузка '%1$s' началась.</string>
+    <string name="error_install">Ошибка установки: %1$s</string>
+    <string name="included">Включено</string>
+    <string name="excluded">Исключено</string>
+</resources>

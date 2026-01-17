@@ -20,6 +20,7 @@ class ModrinthApi(private val cacheManager: CacheManager) {
             json(Json {
                 ignoreUnknownKeys = true
                 isLenient = true
+                coerceInputValues = true // Полезно, если API вернет null там, где мы не ждем
             })
         }
         install(Logging) {
@@ -43,7 +44,7 @@ class ModrinthApi(private val cacheManager: CacheManager) {
                 parameter("offset", offset)
             }
             response.body()
-        } ?: throw IllegalStateException("Failed to fetch search results from Modrinth API")
+        } ?: throw IllegalStateException("Failed to fetch search results")
     }
 
     suspend fun getProject(id: String): Project {
@@ -51,7 +52,7 @@ class ModrinthApi(private val cacheManager: CacheManager) {
         return cacheManager.getOrFetch(cacheKey) {
             val response = client.get("$MODRINTH_API_URL/project/$id")
             response.body()
-        } ?: throw IllegalStateException("Failed to fetch project details from Modrinth API for id: $id")
+        } ?: throw IllegalStateException("Failed to fetch project details")
     }
 
     suspend fun getProjectVersions(id: String): List<Version> {
@@ -59,7 +60,92 @@ class ModrinthApi(private val cacheManager: CacheManager) {
         return cacheManager.getOrFetch(cacheKey) {
             val response = client.get("$MODRINTH_API_URL/project/$id/version")
             response.body()
-        } ?: throw IllegalStateException("Failed to fetch project versions from Modrinth API for id: $id")
+        } ?: throw IllegalStateException("Failed to fetch project versions")
+    }
+
+    // --- RAW DATA METHODS ---
+
+    suspend fun getCategories(): List<ModrinthCategoryTag> {
+        val cacheKey = "modrinth_categories"
+        return cacheManager.getOrFetch(cacheKey) {
+            client.get("$MODRINTH_API_URL/tag/category").body()
+        } ?: emptyList()
+    }
+
+    suspend fun getLoaders(): List<ModrinthLoaderTag> {
+        val cacheKey = "modrinth_loaders"
+        return cacheManager.getOrFetch(cacheKey) {
+            client.get("$MODRINTH_API_URL/tag/loader").body()
+        } ?: emptyList()
+    }
+
+    suspend fun getGameVersions(): List<ModrinthGameVersionTag> {
+        val cacheKey = "modrinth_game_versions"
+        return cacheManager.getOrFetch(cacheKey) {
+            client.get("$MODRINTH_API_URL/tag/game_version").body()
+        } ?: emptyList()
+    }
+
+    // --- SMART AGGREGATED FILTER METHOD ---
+
+    /**
+     * Запрашивает все теги и группирует их для удобного использования в UI.
+     * Возвращает фильтры отдельно для модов, шейдеров, ресурспаков и т.д.
+     */
+    suspend fun getSmartFilters(): AppFilters {
+        // Запрашиваем данные (можно параллельно через async/await, если CacheManager поддерживает)
+        val categories = getCategories()
+        val loaders = getLoaders()
+        val gameVersionsRaw = getGameVersions()
+
+        // 1. Фильтруем версии игры (только релизы и снепшоты, сортируем сами если нужно)
+        val validVersions = gameVersionsRaw
+            .filter { it.version_type == "release" } // Берем только релизы
+            .map { it.version }
+
+        // 2. Подготавливаем структуру
+        val filterMap = mutableMapOf<String, ProjectTypeFilters>()
+        val projectTypes = listOf("mod", "resourcepack", "shader", "modpack")
+
+        // Инициализируем пустые фильтры
+        projectTypes.forEach { type ->
+            filterMap[type] = ProjectTypeFilters(categories = mutableListOf(), loaders = mutableListOf())
+        }
+
+        // 3. Распределяем Категории (Жанры)
+        categories.forEach { cat ->
+            if (filterMap.containsKey(cat.project_type)) {
+                filterMap[cat.project_type]?.categories?.add(
+                    FilterItem(name = cat.name, icon = cat.icon)
+                )
+            }
+        }
+
+        // 4. Распределяем Лоадеры (Fabric, Forge...)
+        loaders.forEach { loader ->
+            loader.supported_project_types.forEach { type ->
+                if (filterMap.containsKey(type)) {
+                    filterMap[type]?.loaders?.add(loader.name)
+                }
+            }
+        }
+
+        // 5. Специальная логика для Datapacks
+        // Датапаки в Modrinth технически являются модами, но мы хотим для них отдельный фильтр.
+        // Они используют категории модов, но лоадер у них жестко "datapack".
+        val datapackFilters = ProjectTypeFilters(
+            categories = filterMap["mod"]?.categories?.toMutableList() ?: mutableListOf(),
+            loaders = mutableListOf("datapack")
+        )
+
+        return AppFilters(
+            mods = filterMap["mod"]!!,
+            resourcePacks = filterMap["resourcepack"]!!,
+            shaders = filterMap["shader"]!!,
+            modpacks = filterMap["modpack"]!!,
+            datapacks = datapackFilters,
+            gameVersions = validVersions
+        )
     }
 
     internal suspend fun getPopularProjects(projectType: String): SearchResult {
@@ -75,6 +161,60 @@ class ModrinthApi(private val cacheManager: CacheManager) {
         client.close()
     }
 }
+
+// --- NEW FILTER DATA CLASSES ---
+
+@Serializable
+data class AppFilters(
+    val mods: ProjectTypeFilters,
+    val resourcePacks: ProjectTypeFilters,
+    val shaders: ProjectTypeFilters,
+    val modpacks: ProjectTypeFilters,
+    val datapacks: ProjectTypeFilters,
+    val gameVersions: List<String>
+)
+
+@Serializable
+data class ProjectTypeFilters(
+    val categories: MutableList<FilterItem>, // Жанры (Adventure, Tech...)
+    val loaders: MutableList<String>         // Загрузчики (Fabric, Iris...)
+)
+
+@Serializable
+data class FilterItem(
+    val name: String, // ID для поиска (в facets)
+    val icon: String? // SVG иконка
+)
+
+// --- UPDATED API DTOs ---
+
+@Serializable
+data class ModrinthCategoryTag(
+    val icon: String?,
+    val name: String,
+    val project_type: String,
+    val header: String?,
+    val pretty_name: String? = null // Сделал nullable и default null на всякий случай
+)
+
+@Serializable
+data class ModrinthLoaderTag(
+    val icon: String?,
+    val name: String,
+    @SerialName("supported_project_types")
+    val supported_project_types: List<String>, // ВАЖНО: Это список, а не строка!
+    val pretty_name: String? = null
+)
+
+@Serializable
+data class ModrinthGameVersionTag(
+    val version: String,
+    val version_type: String, // release, snapshot, alpha, beta
+    val date: String,
+    val major: Boolean
+)
+
+// --- EXISTING CLASSES (UNCHANGED) ---
 
 @Serializable
 data class SearchResult(

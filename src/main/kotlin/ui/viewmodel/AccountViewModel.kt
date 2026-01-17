@@ -1,4 +1,4 @@
-package ui
+package ui.viewmodel
 
 import androidx.compose.runtime.mutableStateOf
 import funlauncher.auth.Account

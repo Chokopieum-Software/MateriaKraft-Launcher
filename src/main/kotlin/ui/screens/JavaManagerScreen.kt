@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package ui
+package ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +25,7 @@ import funlauncher.managers.JavaManager
 import funlauncher.net.DownloadManager
 import funlauncher.net.JavaDownloader
 import kotlinx.coroutines.launch
+import ui.theme.AppTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

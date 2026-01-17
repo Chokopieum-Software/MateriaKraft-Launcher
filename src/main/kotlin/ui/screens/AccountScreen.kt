@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package ui
+package ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
@@ -33,6 +33,7 @@ import funlauncher.auth.Account
 import funlauncher.auth.AccountManager
 import funlauncher.auth.MicrosoftAccount
 import funlauncher.auth.OfflineAccount
+import ui.viewmodel.AccountViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

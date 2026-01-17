@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package ui
+package ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -50,6 +50,8 @@ fun AppTheme(
         Theme.System -> LightColorScheme
         Theme.Light -> LightColorScheme
         Theme.Dark -> DarkColorScheme
+        Theme.Day -> LightColorScheme
+        Theme.Amoled -> DarkColorScheme
     }
     MaterialTheme(
         colorScheme = colorScheme,

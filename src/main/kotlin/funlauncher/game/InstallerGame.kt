@@ -33,7 +33,12 @@ class MinecraftInstaller(private val build: MinecraftBuild, private val buildMan
     }
 
     suspend fun createLaunchConfig(
-        account: Account, javaPath: String, maxRamMb: Int, javaArgs: String, envVars: String
+        account: Account,
+        javaPath: String,
+        maxRamMb: Int,
+        javaArgs: String,
+        envVars: String,
+        showConsole: Boolean // Параметр добавлен
     ): LaunchConfig {
         val task = DownloadManager.startTask("Minecraft ${build.version}")
         try {
@@ -55,7 +60,8 @@ class MinecraftInstaller(private val build: MinecraftBuild, private val buildMan
             // 3. Create Launch Config
             DownloadManager.updateTask(task.id, 0.95f, "Создание конфигурации...")
             val gameLauncher = GameLauncher(versionInfo, build, pathManager)
-            val launchConfig = gameLauncher.createLaunchConfig(account, javaPath, maxRamMb, javaArgs, envVars)
+            // Передаем showConsole дальше
+            val launchConfig = gameLauncher.createLaunchConfig(account, javaPath, maxRamMb, javaArgs, envVars, showConsole)
 
             DownloadManager.updateTask(task.id, 1.0f, "Готово")
             log("Launch config created successfully.")

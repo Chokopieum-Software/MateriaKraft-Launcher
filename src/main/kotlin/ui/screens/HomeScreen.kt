@@ -6,7 +6,7 @@
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
 
-package ui
+package ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
@@ -45,6 +45,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import ui.widgets.AvatarImage
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -129,7 +130,13 @@ fun HomeScreen(
                         onOpenFolderClick = { onOpenFolderClick(build) },
                         onDeleteClick = { onDeleteBuildClick(build) },
                         onSettingsClick = { onSettingsBuildClick(build) },
-                        index = index
+                        index = index,
+                        modifier = Modifier.animateItem(
+                            placementSpec = spring( // Используем именованный аргумент placement
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            )
+                        )
                     )
                 }
             }
@@ -169,7 +176,8 @@ private fun BuildCard(
     onOpenFolderClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    index: Int
+    index: Int,
+    modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -226,7 +234,7 @@ private fun BuildCard(
     }
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .graphicsLayer {
                 scaleX = animatedScale.value
                 scaleY = animatedScale.value
