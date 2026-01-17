@@ -35,9 +35,11 @@ The project is in the **early alpha stage**. This means:
 
 ## 🛠 Technology Stack
 
-- **Language**: [Kotlin](https://kotlinlang.org/)
+- **Language**: [Kotlin](https://kotlinlang.org/) 2.3.0
+- **Java**: Java 25 (LTS)
 - **UI Framework**: [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/)
-- **Build**: Gradle
+- **Build**: Gradle 9.2.1
+- **Game Management**: MLGD (Materia Launcher Game Daemon)
 - **Design**: Material Design 3
 
 ---
@@ -59,11 +61,11 @@ The project is in the **early alpha stage**. This means:
 
 ## 🗺 Roadmap
 
-- [x] Implement an account system (Microsoft/Offline).
-- [x] Download and launch vanilla versions of the game.
-- [ ] Integration with CurseForge/Modrinth API.
-- [x] RAM allocation management system.
-- [ ] Full localization (RU/EN).
+- [ ] Working with official authorization (partially implemented).
+- [ ] API integration with platforms (Modrinth, CurseForge, Technic, ATLauncher).
+- [ ] Android support (release date TBD).
+- [ ] Beautiful and intuitive UI.
+- [ ] Full localization (EN/RU).
 
 ---
 
@@ -75,80 +77,3 @@ Distributed under the MIT License. See the `LICENSE` file for more information.
 *Developed with ❤️, by Chokopieum.*
 
 ---
----
-
-[![Build and Release App](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/actions/workflows/build.yml/badge.svg)](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/actions/workflows/build.yml)
-
-**MateriaKraft Launcher** — это современный, быстрый и интуитивно понятный лаунчер для Minecraft, написанный на Kotlin. Мы стремимся создать лучший пользовательский опыт, объединяя мощный функционал с эстетикой Material Design 3.
-
----
-НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ [ПРОДУКТОМ/УСЛУГОЙ/СОБЫТИЕМ И т. п.] MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT
-
----
-## ✨ Основные особенности
-
-- 🎨 **Material Design 3**: Современный и адаптивный интерфейс с поддержкой динамических цветов.
-- 🚀 **Производительность**: Написан на Kotlin для обеспечения высокой скорости работы.
-- 🛠 **Авто-установка лоадеров**: Поддержка Forge, Fabric, Quilt и NeoForge в несколько кликов (в разработке).
-- 📦 **Модпаки**: Автоматическая установка популярных модпаков прямо из интерфейса.
-- 🌍 **Кроссплатформенность**: Стабильная работа на Windows, Linux и macOS.
-
----
-
-## 🚧 Статус проекта: Alpha
-
-Проект находится на стадии **ранней альфа-версии**. Это означает:
-- Возможны баги и нестабильная работа.
-- Функционал активно добавляется и меняется.
-- Мы открыты для предложений и баг-репортов!
-
----
-
-## 📸 Скриншоты
-<img width="1274" height="728" alt="Снимок экрана_20251219_225859" src="https://github.com/user-attachments/assets/3c23f64b-3da8-49c9-adda-09336c125bdc" />
-<img width="1143" height="589" alt="Снимок экрана_20251219_225927" src="https://github.com/user-attachments/assets/fe8f13f7-102a-48f5-bf36-ff3e4bb09505" />
-<img width="1141" height="593" alt="Снимок экрана_20251219_230001" src="https://github.com/user-attachments/assets/b9816bb2-ca8f-426f-b42c-51e58b806bef" />
-
-
----
-
-## 🛠 Технологический стек
-
-- **Язык**: [Kotlin](https://kotlinlang.org/)
-- **UI Framework**: [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/)
-- **Сборка**: Gradle
-- **Дизайн**: Material Design 3
-
----
-
-## 🚀 Как запустить (для разработчиков)
-
-1. Клонируйте репозиторий:
-   ```bash
-   git clone https://github.com/Chokopieum-Software/MateriaKraft-Launcher.git
-   ```
-2. Откройте проект в **IntelliJ IDEA**.
-3. Дождитесь импорта Gradle.
-4. Запустите задачу:
-   ```bash
-   ./gradlew run
-   ```
-
----
-
-## 🗺 Дорожная карта (Roadmap)
-
-- [x] Реализация системы аккаунтов (Microsoft/Offline).
-- [x] Загрузка и запуск ванильных версий игры.
-- [ ] Интеграция с CurseForge/Modrinth API.
-- [x] Система управления выделением оперативной памяти.
-- [ ] Полная локализация (RU/EN).
-
----
-
-## 📄 Лицензия
-
-Распространяется под лицензией MIT. Смотрите файл `LICENSE` для получения дополнительной информации.
-
----
-*Разработано с ❤️, by Chokopieum.*
