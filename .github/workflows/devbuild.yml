@@ -22,7 +22,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up WiX Toolset
-        uses: crazy-max/ghaction-wix-toolset@v3
+        uses: wixtoolset/wix-actions/setup-wix@v1
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
