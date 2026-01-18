@@ -1,5 +1,7 @@
 [![Build and Release App](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/actions/workflows/build.yml/badge.svg)](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/actions/workflows/build.yml)
 
+[Русский язык](https://github.com/Chokopieum-Software/MateriaKraft-Launcher/blob/master/README-RU.md)
+
 **MateriaKraft Launcher** is a modern, fast, and intuitive Minecraft launcher written in Kotlin. We aim to create the best user experience by combining powerful functionality with the aesthetics of Material Design 3.
 
 ---
@@ -46,18 +48,13 @@ The project is in the **early alpha stage**. This means:
 
 ## 🚀 How to Run (for developers)
 
-1. Clone the repository:
-   ```bash
-   https://github.com/Chokopieum-Software/MateriaKraft-Launcher.git
-   ```
-2. Open the project in **IntelliJ IDEA**.
-3. Wait for Gradle to import.
-4. Run the task:
-   ```bash
-   ./gradlew run
-   ```
+Check build.md
 
 ---
+---
+## When is the release?
+
+The first compiled alpha builds will be published in the second half of February. The launcher's estimated release date is Q3 2026.
 
 ## 🗺 Roadmap
 
