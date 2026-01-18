@@ -1,13 +1,8 @@
 @file:Suppress("DEPRECATION")
-import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-import org.gradle.api.file.DuplicatesStrategy
-import org.gradle.api.tasks.Copy
 import org.gradle.jvm.tasks.Jar
-import java.util.Properties
-import org.gradle.api.tasks.testing.Test
-import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.util.*
 
 plugins {
     kotlin("jvm") version "2.3.0"
@@ -102,6 +97,12 @@ dependencies {
     implementation("io.ktor:ktor-client-logging:2.3.13")
     implementation("org.apache.commons:commons-compress:1.26.2")
     implementation("org.apache.commons:commons-lang3:3.18.0")
+
+    // Exposed for SQLite
+    implementation("org.jetbrains.exposed:exposed-core:0.52.0")
+    implementation("org.jetbrains.exposed:exposed-dao:0.52.0")
+    implementation("org.jetbrains.exposed:exposed-jdbc:0.52.0")
+    implementation("org.xerial:sqlite-jdbc:3.46.0.0")
 
     testImplementation(kotlin("test-junit5"))
 }

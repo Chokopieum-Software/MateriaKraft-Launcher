@@ -1,6 +1,5 @@
 package ui.viewmodel
 
-import androidx.compose.runtime.mutableStateOf
 import funlauncher.auth.Account
 import funlauncher.auth.AccountManager
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +45,15 @@ class AccountViewModel(
                 _errorMessage.value = "Не удалось войти через Microsoft."
             }
             _isLoggingIn.value = false
+        }
+    }
+
+    fun logoutFromMicrosoft() {
+        coroutineScope.launch {
+            withContext(Dispatchers.IO) {
+                accountManager.logoutFromMicrosoft()
+            }
+            loadAccounts()
         }
     }
 

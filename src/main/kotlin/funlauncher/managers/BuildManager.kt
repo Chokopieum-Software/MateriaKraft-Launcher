@@ -10,6 +10,7 @@ package funlauncher.managers
 
 import funlauncher.BuildType
 import funlauncher.MinecraftBuild
+import funlauncher.database.dao.BuildDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -28,45 +29,54 @@ class BuildManager(private val pathManager: PathManager) {
     private val launcherPath: Path = pathManager.getAppDataDirectory()
     private val instancesPath: Path = launcherPath.resolve("instances")
     private val versionsPath: Path = launcherPath.resolve("versions")
-    private val buildsFilePath: Path = launcherPath.resolve("builds.json")
     private val backgroundsPath: Path = launcherPath.resolve("backgrounds")
-
-    private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
-    private var _builds: MutableList<MinecraftBuild> = mutableListOf()
+    private val buildDao = BuildDao()
     private val buildsMutex = Mutex()
 
-    private fun loadBuildsInternal(): MutableList<MinecraftBuild> {
-        if (!buildsFilePath.exists()) {
-            return mutableListOf()
-        }
-        return try {
-            json.decodeFromString<MutableList<MinecraftBuild>>(buildsFilePath.readText())
-        } catch (e: Exception) {
-            println("Ошибка чтения builds.json: ${e.message}")
-            try {
-                val oldFormatBuilds = json.decodeFromString<List<OldMinecraftBuild>>(buildsFilePath.readText())
-                val newBuilds = oldFormatBuilds.map { it.toNewBuild() }.toMutableList()
-                // Сохраняем мигрированные сборки сразу
-                buildsFilePath.writeText(json.encodeToString(newBuilds))
-                newBuilds
-            } catch (e2: Exception) {
-                println("Миграция не удалась: ${e2.message}")
-                mutableListOf()
-            }
-        }
+    init {
+        migrateFromJson()
     }
 
-    private fun saveBuildsInternal(buildsToSave: List<MinecraftBuild>) {
-        _builds = buildsToSave.toMutableList()
-        val content = json.encodeToString(_builds)
-        buildsFilePath.writeText(content)
+    private fun migrateFromJson() {
+        val buildsFilePath = launcherPath.resolve("builds.json")
+        if (buildsFilePath.exists()) {
+            println("--- Запуск миграции сборок из builds.json ---")
+            val content = buildsFilePath.readText()
+            if (content.isNotBlank()) {
+                val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
+                try {
+                    val jsonBuilds = json.decodeFromString<List<MinecraftBuild>>(content)
+                    jsonBuilds.forEach { build ->
+                        if (!buildDao.exists(build.name)) {
+                            buildDao.add(build)
+                            println("Мигрирована сборка: ${build.name}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    println("Ошибка десериализации builds.json во время миграции: ${e.message}")
+                    try {
+                        val oldFormatBuilds = json.decodeFromString<List<OldMinecraftBuild>>(content)
+                        val newBuilds = oldFormatBuilds.map { it.toNewBuild() }
+                        newBuilds.forEach { build ->
+                            if (!buildDao.exists(build.name)) {
+                                buildDao.add(build)
+                                println("Мигрирована сборка (старый формат): ${build.name}")
+                            }
+                        }
+                    } catch (e2: Exception) {
+                        println("Миграция из старого формата не удалась: ${e2.message}")
+                    }
+                }
+            }
+            buildsFilePath.moveTo(launcherPath.resolve("builds.json.migrated"), true)
+            println("--- Миграция сборок завершена ---")
+        }
     }
 
     suspend fun loadBuilds(): List<MinecraftBuild> = withContext(Dispatchers.IO) {
         buildsMutex.withLock {
-            _builds = loadBuildsInternal()
+            return@withContext buildDao.getAll()
         }
-        return@withContext _builds.toList()
     }
 
     private fun prepareDefaultBackgrounds(): List<Path> {
@@ -101,7 +111,7 @@ class BuildManager(private val pathManager: PathManager) {
     suspend fun synchronizeBuilds(): Pair<List<MinecraftBuild>, Int> = withContext(Dispatchers.IO) {
         var newBuildsCount = 0
         val resultingBuilds = buildsMutex.withLock {
-            val currentBuilds = loadBuildsInternal()
+            val currentBuilds = buildDao.getAll().toMutableList()
 
             if (!instancesPath.exists() || !instancesPath.isDirectory()) {
                 return@withLock currentBuilds
@@ -113,7 +123,6 @@ class BuildManager(private val pathManager: PathManager) {
                 .filter { it.isDirectory() }
                 .map { it.fileName.toString() }
 
-            var changed = false
             for (dirName in directoryNames) {
                 if (dirName !in existingBuildNames) {
                     val versionInfo = detectVersionFromInstance(instancesPath.resolve(dirName))
@@ -125,18 +134,13 @@ class BuildManager(private val pathManager: PathManager) {
                         installPath = instancesPath.resolve(dirName).toString(),
                         imagePath = randomBackground
                     )
+                    buildDao.add(newBuild)
                     currentBuilds.add(newBuild)
-                    changed = true
                     newBuildsCount++
                     println("Найдена и добавлена новая сборка: $dirName (Версия: ${versionInfo.first}, Тип: ${versionInfo.second})")
                 }
             }
-
-            if (changed) {
-                saveBuildsInternal(currentBuilds)
-            }
-            _builds = currentBuilds
-            _builds
+            currentBuilds
         }
         return@withContext resultingBuilds.toList() to newBuildsCount
     }
@@ -167,15 +171,13 @@ class BuildManager(private val pathManager: PathManager) {
 
     suspend fun addBuild(name: String, version: String, type: BuildType, imagePath: String?) = withContext(Dispatchers.IO) {
         buildsMutex.withLock {
-            val currentBuilds = loadBuildsInternal()
-
             require(name.isNotBlank()) { "Название сборки не может быть пустым" }
             require(version.isNotBlank()) { "Версия не может быть пустой" }
 
             val invalidChars = setOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')
             require(name.none { it in invalidChars }) { "Название сборки содержит запрещенные символы" }
 
-            if (currentBuilds.any { it.name.equals(name, ignoreCase = true) }) {
+            if (buildDao.exists(name)) {
                 throw IllegalStateException("Сборка с именем '$name' уже существует")
             }
 
@@ -192,9 +194,7 @@ class BuildManager(private val pathManager: PathManager) {
                 envVars = null
             )
 
-            currentBuilds.add(newBuild)
-            saveBuildsInternal(currentBuilds)
-
+            buildDao.add(newBuild)
             buildPath.createDirectories()
         }
     }
@@ -211,18 +211,14 @@ class BuildManager(private val pathManager: PathManager) {
         newEnvVars: String?
     ) = withContext(Dispatchers.IO) {
         buildsMutex.withLock {
-            val currentBuilds = loadBuildsInternal()
-            val buildIndex = currentBuilds.indexOfFirst { it.name.equals(oldName, ignoreCase = true) }
-            if (buildIndex == -1) return@withLock
+            val buildToUpdate = buildDao.getAll().find { it.name.equals(oldName, ignoreCase = true) } ?: return@withLock
 
-            val oldBuild = currentBuilds[buildIndex]
-
-            if (oldName != newName && currentBuilds.any { it.name.equals(newName, ignoreCase = true) }) {
+            if (oldName != newName && buildDao.exists(newName)) {
                 throw IllegalStateException("Сборка с именем '$newName' уже существует.")
             }
 
             val newInstallPath = if (oldName != newName) {
-                val oldPath = Path(oldBuild.installPath)
+                val oldPath = Path(buildToUpdate.installPath)
                 val newPath = instancesPath.resolve(newName.trim())
                 if (newPath.exists()) {
                     throw IllegalStateException("Папка для сборки '$newName' уже существует.")
@@ -230,16 +226,16 @@ class BuildManager(private val pathManager: PathManager) {
                 oldPath.moveTo(newPath, true)
                 newPath.toString()
             } else {
-                oldBuild.installPath
+                buildToUpdate.installPath
             }
 
-            if (oldBuild.version != newVersion || oldBuild.type != newType) {
-                val versionDir = versionsPath.resolve(oldBuild.version)
+            if (buildToUpdate.version != newVersion || buildToUpdate.type != newType) {
+                val versionDir = versionsPath.resolve(buildToUpdate.version)
                 if (versionDir.exists()) {
                     println("Version changed. Deleting old version directory: $versionDir")
                     versionDir.deleteRecursively()
                 }
-                val vanillaPart = oldBuild.version.split("-fabric-").firstOrNull()
+                val vanillaPart = buildToUpdate.version.split("-fabric-").firstOrNull()
                 if (vanillaPart != null) {
                     val vanillaDir = versionsPath.resolve(vanillaPart)
                     if (vanillaDir.exists()) {
@@ -249,7 +245,7 @@ class BuildManager(private val pathManager: PathManager) {
                 }
             }
 
-            currentBuilds[buildIndex] = oldBuild.copy(
+            val updatedBuild = buildToUpdate.copy(
                 name = newName.trim(),
                 version = newVersion,
                 type = newType,
@@ -260,34 +256,25 @@ class BuildManager(private val pathManager: PathManager) {
                 javaArgs = newJavaArgs,
                 envVars = newEnvVars
             )
-            saveBuildsInternal(currentBuilds)
+            
+            buildDao.update(oldName, updatedBuild)
         }
     }
 
     suspend fun updateBuildModloaderVersion(buildName: String, modloaderVersion: String) = withContext(Dispatchers.IO) {
         buildsMutex.withLock {
-            val currentBuilds = loadBuildsInternal()
-            val buildIndex = currentBuilds.indexOfFirst { it.name.equals(buildName, ignoreCase = true) }
-            if (buildIndex != -1) {
-                val oldBuild = currentBuilds[buildIndex]
-                if (oldBuild.modloaderVersion != modloaderVersion) {
-                    currentBuilds[buildIndex] = oldBuild.copy(modloaderVersion = modloaderVersion)
-                    saveBuildsInternal(currentBuilds)
-                }
+            val buildToUpdate = buildDao.getAll().find { it.name.equals(buildName, ignoreCase = true) }
+            if (buildToUpdate != null && buildToUpdate.modloaderVersion != modloaderVersion) {
+                val updatedBuild = buildToUpdate.copy(modloaderVersion = modloaderVersion)
+                buildDao.update(updatedBuild)
             }
         }
     }
 
     suspend fun deleteBuild(name: String) = withContext(Dispatchers.IO) {
-        val buildToRemove = buildsMutex.withLock {
-            val currentBuilds = loadBuildsInternal()
-            val build = currentBuilds.firstOrNull { it.name.equals(name, ignoreCase = true) }
-            if (build != null) {
-                currentBuilds.remove(build)
-                saveBuildsInternal(currentBuilds)
-            }
-            build
-        } ?: return@withContext
+        val buildToRemove = buildDao.getAll().find { it.name.equals(name, ignoreCase = true) } ?: return@withContext
+
+        buildDao.delete(name)
 
         val instancePath = Path(buildToRemove.installPath)
         if (instancePath.exists()) {

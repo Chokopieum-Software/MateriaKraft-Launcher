@@ -9,15 +9,13 @@
 package ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.MarqueeAnimationMode
-import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
@@ -32,10 +30,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.loadImageBitmap
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import funlauncher.BuildType
@@ -110,34 +111,48 @@ fun HomeScreen(
         },
         containerColor = Color.Transparent
     ) { paddingValues ->
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 220.dp),
-            modifier = Modifier.fillMaxSize().padding(paddingValues),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            itemsIndexed(filteredBuilds, key = { _, build -> build.name }) { index, build ->
-                AnimatedVisibility(
-                    visible = build.name !in buildsPendingDeletion,
-                    exit = shrinkVertically(animationSpec = tween(durationMillis = 300)) + fadeOut(animationSpec = tween(durationMillis = 250))
-                ) {
-                    BuildCard(
-                        build = build,
-                        isRunning = build == runningBuild,
-                        isPreparing = build.name == isLaunchingBuildId,
-                        onLaunchClick = { onLaunchClick(build) },
-                        onOpenFolderClick = { onOpenFolderClick(build) },
-                        onDeleteClick = { onDeleteBuildClick(build) },
-                        onSettingsClick = { onSettingsBuildClick(build) },
-                        index = index,
-                        modifier = Modifier.animateItem(
-                            placementSpec = spring( // Используем именованный аргумент placement
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMedium
+        if (builds.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Сборки не найдены.\nНажмите \"Создать\", чтобы добавить новую.",
+                    style = MaterialTheme.typography.headlineSmall,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 220.dp),
+                modifier = Modifier.fillMaxSize().padding(paddingValues),
+                contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                itemsIndexed(filteredBuilds, key = { _, build -> build.name }) { index, build ->
+                    AnimatedVisibility(
+                        visible = build.name !in buildsPendingDeletion,
+                        exit = shrinkVertically(animationSpec = tween(durationMillis = 300)) + fadeOut(animationSpec = tween(durationMillis = 250))
+                    ) {
+                        BuildCard(
+                            build = build,
+                            isRunning = build == runningBuild,
+                            isPreparing = build.name == isLaunchingBuildId,
+                            onLaunchClick = { onLaunchClick(build) },
+                            onOpenFolderClick = { onOpenFolderClick(build) },
+                            onDeleteClick = { onDeleteBuildClick(build) },
+                            onSettingsClick = { onSettingsBuildClick(build) },
+                            index = index,
+                            modifier = Modifier.animateItem(
+                                placementSpec = spring( // Используем именованный аргумент placement
+                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                    stiffness = Spring.StiffnessMedium
+                                )
                             )
                         )
-                    )
+                    }
                 }
             }
         }

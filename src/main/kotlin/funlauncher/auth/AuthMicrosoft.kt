@@ -18,6 +18,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URI
+import java.util.*
 
 class MateriaAuthenticator {
 
@@ -72,15 +73,54 @@ class MateriaAuthenticator {
             acquireTokenInteractive()
         }
 
-        println("[Materia] Вход в Microsoft выполнен! Получаю профиль Minecraft...")
+        println("[Materia] Вход в Microsoft выполнен! Получаю профиль Xbox...")
 
-        // Цепочка обмена токенов (без изменений, так как это стандарт)
-        val xbox = authXboxLive(msAccessToken)
-        val xsts = authXSTS(xbox.token)
-        val mcToken = authMinecraft(xsts.userHash, xsts.token)
+        val xboxToken = authXboxLive(msAccessToken).token
+        val xsts = authXSTS(xboxToken)
 
-        return checkGameOwnership(mcToken)
+        try {
+            println("[Materia] Проверяю лицензию Minecraft...")
+            val mcToken = authMinecraft(xsts.userHash, xsts.token)
+            val profile = getMinecraftProfile(mcToken)
+            println("[Materia] Лицензия найдена! Вход с профилем ${profile.name}")
+            return profile
+        } catch (e: Exception) {
+            println("[Materia] Лицензия Minecraft не найдена или произошла ошибка: ${e.message}")
+            println("[Materia] Вход с профилем Xbox (${xsts.gamertag}).")
+
+            val uuid = UUID.nameUUIDFromBytes("OfflinePlayer:${xsts.gamertag}".toByteArray()).toString()
+
+            return MinecraftProfile(
+                id = uuid,
+                name = xsts.gamertag,
+                accessToken = "0", // Стандарт для оффлайн-режима
+                skinUrl = null,
+                isLicensed = false
+            )
+        }
     }
+
+    fun logout() {
+        try {
+            // 1. Очищаем аккаунты из кэша MSAL в памяти
+            val accounts = app.accounts.join()
+            if (accounts.isNotEmpty()) {
+                for (acc in accounts) {
+                    app.removeAccount(acc).join()
+                }
+                println("[Materia] Аккаунты MSAL в памяти очищены.")
+            }
+
+            // 2. Удаляем сам файл кэша из системного хранилища
+            val keyring = Keyring.create()
+            keyring.deletePassword("MateriaLauncher", "MateriaAuthCache")
+            println("[Materia] Кэш токенов удален из системного хранилища.")
+
+        } catch (e: Exception) {
+            println("Warning: Не удалось полностью очистить сессию Microsoft: ${e.message}")
+        }
+    }
+
 
     // --- ЛОГИКА MSAL ---
 
@@ -109,15 +149,17 @@ class MateriaAuthenticator {
         return app.acquireToken(params).join().accessToken()
     }
 
-    // --- MINECRAFT API (То же самое, что и раньше) ---
+    // --- MINECRAFT API ---
 
     data class XboxResponse(val token: String, val userHash: String)
+    data class XSTSResponse(val token: String, val userHash: String, val gamertag: String)
     data class McTokenResponse(@SerializedName("access_token") val accessToken: String)
     data class MinecraftProfile(
         val id: String,
         val name: String,
         val accessToken: String,
-        val skinUrl: String? // <-- Добавили поле для скина
+        val skinUrl: String?,
+        val isLicensed: Boolean
     )
 
     private fun authXboxLive(msToken: String): XboxResponse {
@@ -130,13 +172,22 @@ class MateriaAuthenticator {
         )
     }
 
-    private fun authXSTS(xboxToken: String): XboxResponse {
+    private fun authXSTS(xboxToken: String): XSTSResponse {
         val json = """{"Properties":{"SandboxId":"RETAIL","UserTokens":["$xboxToken"]},"RelyingParty":"rp://api.minecraftservices.com/","TokenType":"JWT"}"""
         val resp = postJson("https://xsts.auth.xboxlive.com/xsts/authorize", json)
         val jsonObj = gson.fromJson(resp, JsonObject::class.java)
-        return XboxResponse(
-            jsonObj.get("Token").asString,
-            jsonObj.getAsJsonObject("DisplayClaims").getAsJsonArray("xui")[0].asJsonObject.get("uhs").asString
+        val xuiClaims = jsonObj.getAsJsonObject("DisplayClaims").getAsJsonArray("xui")[0].asJsonObject
+
+        val gamertag = if (xuiClaims.has("gtg")) {
+            xuiClaims.get("gtg").asString
+        } else {
+            "Xbox User" // Запасной вариант
+        }
+
+        return XSTSResponse(
+            token = jsonObj.get("Token").asString,
+            userHash = xuiClaims.get("uhs").asString,
+            gamertag = gamertag
         )
     }
 
@@ -146,14 +197,17 @@ class MateriaAuthenticator {
         return gson.fromJson(resp, McTokenResponse::class.java).accessToken
     }
 
-    private fun checkGameOwnership(mcToken: String): MinecraftProfile {
+    private fun getMinecraftProfile(mcToken: String): MinecraftProfile {
         val request = Request.Builder()
             .url("https://api.minecraftservices.com/minecraft/profile")
             .header("Authorization", "Bearer $mcToken")
             .build()
 
         client.newCall(request).execute().use {
-            if (!it.isSuccessful) throw Exception("Ошибка получения профиля или игра не куплена.")
+            if (!it.isSuccessful) {
+                val errorBody = it.body?.string()
+                throw Exception("Ошибка получения профиля ($errorBody) или игра не куплена.")
+            }
 
             val json = gson.fromJson(it.body!!.string(), JsonObject::class.java)
             val id = json.get("id").asString
@@ -170,15 +224,23 @@ class MateriaAuthenticator {
             }
             // ---------------------------------
 
-            return MinecraftProfile(id, name, mcToken, skinUrl)
+            return MinecraftProfile(id, name, mcToken, skinUrl, isLicensed = true)
         }
     }
 
     private fun postJson(url: String, json: String): String {
         val request = Request.Builder().url(url).post(json.toRequestBody(jsonMediaType)).header("Accept", "application/json").build()
         client.newCall(request).execute().use {
-            if (!it.isSuccessful) throw Exception("API Error $url: ${it.code} ${it.body?.string()}")
-            return it.body!!.string()
+            val responseBody = it.body?.string()
+            if (!it.isSuccessful) {
+                println("--- API ERROR ---")
+                println("URL: $url")
+                println("Code: ${it.code}")
+                println("Response: $responseBody")
+                println("--- END API ERROR ---")
+                throw Exception("API Error $url: ${it.code}")
+            }
+            return responseBody!!
         }
     }
 }

@@ -8,13 +8,9 @@
 
 package ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.*
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,8 +48,6 @@ fun AccountScreen(
     var showAddOfflineAccountDialog by remember { mutableStateOf(false) }
     var accountToDelete by remember { mutableStateOf<Account?>(null) }
     var showBrowserLoginDialog by remember { mutableStateOf(false) }
-
-    val hasLicensedAccount = remember(accounts) { accounts.any { it.isLicensed } }
 
     val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
     LaunchedEffect(visibleState.currentState) {
@@ -95,7 +89,7 @@ fun AccountScreen(
                                     supportingContent = {
                                         when (account) {
                                             is OfflineAccount -> Text("Оффлайн")
-                                            is MicrosoftAccount -> Text("Microsoft")
+                                            is MicrosoftAccount -> Text(if (account.isLicensed) "Microsoft" else "Microsoft (Xbox)")
                                         }
                                     },
                                     trailingContent = {
@@ -146,8 +140,7 @@ fun AccountScreen(
                     onClick = {
                         showAddAccountTypeDialog = false
                         showAddOfflineAccountDialog = true
-                    },
-                    enabled = hasLicensedAccount
+                    }
                 ) { Text("Оффлайн") }
             }
         )

@@ -5,10 +5,11 @@
  * Распространяется по лицензии MIT.
  * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
  */
-import org.jetbrains.compose.resources.ExperimentalResourceApi
 import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,11 +23,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.*
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import com.sun.management.OperatingSystemMXBean
 import funlauncher.*
 import funlauncher.auth.Account
 import funlauncher.auth.AccountManager
+import funlauncher.database.DatabaseManager
 import funlauncher.game.MLGDClient
 import funlauncher.game.MinecraftInstaller
 import funlauncher.managers.BuildManager
@@ -37,26 +42,26 @@ import funlauncher.net.DownloadManager
 import funlauncher.net.JavaDownloader
 import funlauncher.net.ModrinthApi
 import kotlinx.coroutines.*
+import org.chokopieum.software.materia_launcher.generated.resources.*
 import org.chokopieum.software.mlgd.StatusResponse
+import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
-import org.chokopieum.software.materia_launcher.generated.resources.*
 import ui.dialogs.AddBuildDialog
 import ui.dialogs.ConfirmDeleteDialog
 import ui.dialogs.ErrorDialog
 import ui.dialogs.RamWarningDialog
 import ui.screens.*
-import ui.windows.GameConsoleWindow
 import ui.widgets.BeautifulCircularProgressIndicator
 import ui.widgets.DownloadsPopup
+import ui.windows.GameConsoleWindow
 import java.awt.Dimension
 import java.awt.Image
 import java.awt.Toolkit
 import java.lang.management.ManagementFactory
 import java.time.Month
 import java.time.OffsetDateTime
-import java.util.Locale
-import java.util.Properties
+import java.util.*
 import javax.imageio.ImageIO
 import javax.swing.*
 import kotlin.math.min
@@ -361,7 +366,9 @@ fun App(
                             AppTab.Settings -> SettingsTab(
                                 currentSettings = appState.settings,
                                 onSave = onSettingsChange,
-                                onOpenJavaManager = { showJavaManagerWindow = true }
+                                onOpenJavaManager = { showJavaManagerWindow = true },
+                                accountManager = accountManager,
+                                coroutineScope = scope
                             )
                         }
                     }
@@ -722,6 +729,7 @@ private fun createAndShowSplashScreen(statusLabel: JLabel): JWindow? {
 fun main() {
     runBlocking(Dispatchers.IO) {
         val pathManager = PathManager(PathManager.getDefaultAppDataDirectory())
+        DatabaseManager.init(pathManager)
         val settingsManager = SettingsManager(pathManager)
         val settings = settingsManager.loadSettings()
         Locale.setDefault(Locale(settings.language))

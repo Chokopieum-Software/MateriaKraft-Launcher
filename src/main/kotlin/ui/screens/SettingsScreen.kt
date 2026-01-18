@@ -30,12 +30,14 @@ import androidx.compose.ui.unit.dp
 import funlauncher.AppSettings
 import funlauncher.NavPanelPosition
 import funlauncher.Theme
+import funlauncher.auth.AccountManager
 import funlauncher.openUri
-import java.awt.Desktop
+import kotlinx.coroutines.CoroutineScope
 import ui.dialogs.LaunchSettingsDialog
+import ui.viewmodel.AccountViewModel
 import java.io.File
 import java.net.URI
-import java.util.Properties
+import java.util.*
 
 object AppInfo {
     val version: String
@@ -97,9 +99,12 @@ private enum class SettingsSection(val title: String, val icon: ImageVector) {
 fun SettingsTab(
     currentSettings: AppSettings,
     onSave: (AppSettings) -> Unit,
-    onOpenJavaManager: () -> Unit
+    onOpenJavaManager: () -> Unit,
+    accountManager: AccountManager,
+    coroutineScope: CoroutineScope
 ) {
     var currentSection by remember { mutableStateOf(SettingsSection.Appearance) }
+    val accountViewModel = remember { AccountViewModel(accountManager, coroutineScope) }
 
     Row(modifier = Modifier.fillMaxSize()) {
         NavigationRail(
@@ -128,7 +133,7 @@ fun SettingsTab(
         Box(modifier = Modifier.weight(1f).padding(16.dp)) {
             when (currentSection) {
                 SettingsSection.Appearance -> AppearanceSettings(currentSettings, onSave)
-                SettingsSection.Launch -> LaunchSettings(currentSettings, onSave, onOpenJavaManager)
+                SettingsSection.Launch -> LaunchSettings(currentSettings, onSave, onOpenJavaManager, accountViewModel)
                 SettingsSection.About -> AboutScreen()
             }
         }
@@ -241,9 +246,11 @@ private fun AppearanceSettings(
 private fun LaunchSettings(
     currentSettings: AppSettings,
     onSave: (AppSettings) -> Unit,
-    onOpenJavaManager: () -> Unit
+    onOpenJavaManager: () -> Unit,
+    accountViewModel: AccountViewModel
 ) {
     var showLaunchSettingsDialog by remember { mutableStateOf(false) }
+    var showLogoutConfirmDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -273,6 +280,14 @@ private fun LaunchSettings(
                         Text("Глобальные настройки запуска")
                     }
                 }
+                Divider()
+                Button(
+                    onClick = { showLogoutConfirmDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Очистить сессию Microsoft")
+                }
             }
         }
     }
@@ -282,6 +297,30 @@ private fun LaunchSettings(
             currentSettings = currentSettings,
             onDismiss = { showLaunchSettingsDialog = false },
             onSave = onSave
+        )
+    }
+
+    if (showLogoutConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirmDialog = false },
+            title = { Text("Подтверждение") },
+            text = { Text("Вы уверены, что хотите выйти из всех аккаунтов Microsoft и очистить сохраненную сессию? Вам потребуется войти заново.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        accountViewModel.logoutFromMicrosoft()
+                        showLogoutConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Да, очистить")
+                }
+            },
+            dismissButton = {
+                Button(onClick = { showLogoutConfirmDialog = false }) {
+                    Text("Отмена")
+                }
+            }
         )
     }
 }

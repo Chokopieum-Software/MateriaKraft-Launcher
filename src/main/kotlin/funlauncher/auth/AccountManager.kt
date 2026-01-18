@@ -8,101 +8,69 @@
 
 package funlauncher.auth
 
+import funlauncher.database.dao.AccountDao
 import funlauncher.managers.PathManager
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
-import java.io.IOException
 
 class AccountManager(pathManager: PathManager) {
-    private val accountsFile = pathManager.getAppDataDirectory().resolve("accounts.json").toFile()
-    private val json = Json {
-        prettyPrint = true
-        ignoreUnknownKeys = true
-        serializersModule = SerializersModule {
-            polymorphic(Account::class) {
-                subclass(OfflineAccount::class)
-                subclass(MicrosoftAccount::class)
-            }
-        }
-    }
+    private val accountDao = AccountDao()
     private var accounts: MutableList<Account> = mutableListOf()
 
-    private fun createDefaultAccounts(): MutableList<Account> {
-        println("Создание файла accounts.json по умолчанию.")
-        return mutableListOf(
-            MicrosoftAccount(
-                username = "YourMicrosoftName",
-                uuid = "123e4567-e89b-12d3-a456-426614174001",
-                accessToken = "dummy_token_for_testing",
-                skinUrl = null,
-                isLicensed = true
-            ),
-            OfflineAccount(
-                username = "OfflinePlayer",
-                uuid = "00000000-0000-0000-0000-000000000000",
-                accessToken = "0",
-                isLicensed = false
-            )
-        )
+    init {
+        migrateFromJson(pathManager)
+        accounts = accountDao.getAll().toMutableList()
+    }
+
+    private fun migrateFromJson(pathManager: PathManager) {
+        val accountsFile = pathManager.getAppDataDirectory().resolve("accounts.json").toFile()
+        if (accountsFile.exists()) {
+            println("--- Запуск миграции аккаунтов из accounts.json ---")
+            val content = try {
+                accountsFile.readText()
+            } catch (e: Exception) {
+                println("Критическая ошибка чтения файла accounts.json для миграции:")
+                e.printStackTrace()
+                return
+            }
+
+            if (content.isNotBlank()) {
+                val json = Json {
+                    prettyPrint = true
+                    ignoreUnknownKeys = true
+                    serializersModule = SerializersModule {
+                        polymorphic(Account::class) {
+                            subclass(OfflineAccount::class)
+                            subclass(MicrosoftAccount::class)
+                        }
+                    }
+                }
+                try {
+                    val jsonAccounts = json.decodeFromString<List<Account>>(content)
+                    jsonAccounts.forEach { account ->
+                        if (!accountDao.exists(account.username)) {
+                            accountDao.add(account)
+                            println("Мигрирован аккаунт: ${account.username}")
+                        }
+                    }
+                } catch (e: SerializationException) {
+                    println("Ошибка десериализации accounts.json во время миграции:")
+                    e.printStackTrace()
+                }
+            }
+            // Переименовываем файл после успешной миграции, чтобы избежать повторной миграции
+            accountsFile.renameTo(pathManager.getAppDataDirectory().resolve("accounts.json.migrated").toFile())
+            println("--- Миграция аккаунтов завершена ---")
+        }
     }
 
     fun loadAccounts(): List<Account> {
-        println("--- Загрузка аккаунтов ---")
-        println("Путь к файлу: ${accountsFile.absolutePath}")
-
-        if (!accountsFile.exists()) {
-            println("Файл accounts.json не найден. Создание файла по умолчанию.")
-            accounts = createDefaultAccounts()
-            saveAccounts()
-            return accounts
-        }
-
-        val content = try {
-            accountsFile.readText()
-        } catch (e: Exception) {
-            println("Критическая ошибка чтения файла accounts.json:")
-            e.printStackTrace()
-            return accounts
-        }
-
-        println("Содержимое файла:\n$content")
-
-        if (content.isBlank()) {
-            println("Файл пуст. Создание файла по умолчанию.")
-            accounts = createDefaultAccounts()
-            saveAccounts()
-            return accounts
-        }
-
-        try {
-            accounts = json.decodeFromString<MutableList<Account>>(content)
-            println("Аккаунты успешно загружены.")
-        } catch (e: SerializationException) {
-            println("Ошибка десериализации kotlinx.serialization. Создание файла по умолчанию.")
-            e.printStackTrace()
-            accounts = createDefaultAccounts()
-            saveAccounts()
-        } catch (e: Exception) {
-            println("Произошла неожиданная ошибка при загрузке аккаунтов:")
-            e.printStackTrace()
-            accounts = mutableListOf()
-        }
-        println("--- Загрузка завершена, найдено ${accounts.size} аккаунтов ---")
+        accounts = accountDao.getAll().toMutableList()
+        println("--- Загрузка аккаунтов из БД, найдено ${accounts.size} ---")
         return accounts
-    }
-
-    private fun saveAccounts() {
-        try {
-            accountsFile.parentFile.mkdirs()
-            accountsFile.writeText(json.encodeToString(accounts))
-            println("Аккаунты сохранены в ${accountsFile.absolutePath}")
-        } catch (e: IOException) {
-            println("Ошибка сохранения accounts.json: ${e.message}")
-        }
     }
 
     fun hasLicensedAccount(): Boolean {
@@ -110,18 +78,13 @@ class AccountManager(pathManager: PathManager) {
     }
 
     fun addAccount(account: Account): Boolean {
-        if (account is OfflineAccount && !hasLicensedAccount()) {
-            println("Нельзя добавить оффлайн аккаунт без лицензионного.")
-            return false
-        }
-
-        if (accounts.any { it.username.equals(account.username, ignoreCase = true) }) {
+        if (accountDao.exists(account.username)) {
             println("Аккаунт с именем ${account.username} уже существует.")
             return false
         }
 
+        accountDao.add(account)
         accounts.add(account)
-        saveAccounts()
         return true
     }
 
@@ -129,13 +92,23 @@ class AccountManager(pathManager: PathManager) {
         return try {
             val authenticator = MateriaAuthenticator()
             val profile = authenticator.login()
-            val account = MicrosoftAccount(
-                username = profile.name,
-                uuid = profile.id,
-                accessToken = profile.accessToken,
-                skinUrl = profile.skinUrl,
-                isLicensed = true
-            )
+
+            val account = if (profile.isLicensed) {
+                MicrosoftAccount(
+                    username = profile.name,
+                    uuid = profile.id,
+                    accessToken = profile.accessToken,
+                    skinUrl = profile.skinUrl,
+                    isLicensed = true
+                )
+            } else {
+                OfflineAccount(
+                    username = profile.name,
+                    uuid = profile.id,
+                    accessToken = profile.accessToken,
+                    isLicensed = false
+                )
+            }
             addAccount(account)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -143,9 +116,17 @@ class AccountManager(pathManager: PathManager) {
         }
     }
 
+    fun logoutFromMicrosoft() {
+        val authenticator = MateriaAuthenticator()
+        authenticator.logout()
+
+        accountDao.deleteAllMicrosoft()
+        accounts.removeIf { it is MicrosoftAccount }
+    }
+
     fun deleteAccount(account: Account) {
+        accountDao.delete(account)
         accounts.remove(account)
-        saveAccounts()
     }
 
     fun getAccounts(): List<Account> {
