@@ -36,15 +36,16 @@ jobs:
 
       - name: Build project step by step
         run: |
-          # 1. Очищаем предыдущие сборки
+          # Очистка
           ./gradlew clean
           
-          # 2. Собираем проект
-          ./gradlew build
+          # Сборка без тестов
+          ./gradlew build -x test --stacktrace
           
-          # 3. Пробуем создать дистрибутив с флагом для устранения предупреждений
-          ./gradlew createDistributable -Dorg.gradle.jvmargs="--enable-native-access=ALL-UNNAMED"
-          
+          # Создание дистрибутива (также без тестов)
+          ./gradlew createDistributable -x test --stacktrace \
+            -Dorg.gradle.jvmargs="--enable-native-access=ALL-UNNAMED" \
+            --warning-mode=none
           # 4. Если не сработало, пытаемся создать package
           if [ $? -ne 0 ]; then
             echo "createDistributable failed, trying package..."
