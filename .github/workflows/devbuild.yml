@@ -21,6 +21,9 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up WiX Toolset
+        uses: crazy-max/ghaction-wix-toolset@v3
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
