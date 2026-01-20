@@ -126,6 +126,7 @@ compose.desktop {
             description = "Modern launcher for Minecraft"
             vendor = "Chokopieum Software"
             copyright = "© 2025 Chokopieum Software"
+            modules("ALL-MODULE-PATH")
 
             // Собираем только EXE для Windows со встроенной JDK
             // targetFormats(TargetFormat.Exe) // Временно отключено из-за проблем с версией
