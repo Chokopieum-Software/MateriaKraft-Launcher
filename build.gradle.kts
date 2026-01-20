@@ -76,7 +76,7 @@ repositories {
 
 dependencies {
     implementation(project(":MLGD"))
-    implementation(compose.desktop.common)
+    implementation(compose.desktop.currentOs)
     implementation(compose.components.resources)
     implementation(compose.materialIconsExtended)
     implementation(compose.material3)
