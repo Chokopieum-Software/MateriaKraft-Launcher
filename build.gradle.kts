@@ -115,16 +115,14 @@ compose.desktop {
     application {
         mainClass = "MainKt"
 
-        jvmArgs += listOf(
-            "-XX:+UseZGC",
-            "-Xms512m",
-            "-Xmx512m",
-            "-XX:+DisableExplicitGC"
-        )
-
         nativeDistributions {
             packageName = "materia-launcher"
-            packageVersion = appVersion
+            val osName = System.getProperty("os.name")
+            if (osName.lowercase(Locale.getDefault()).contains("win")) {
+                packageVersion = "1.0.$appBuildNumber"
+            } else {
+                packageVersion = appVersion
+            }
             description = "Modern launcher for Minecraft"
             vendor = "Chokopieum Software"
             copyright = "© 2025 Chokopieum Software"
