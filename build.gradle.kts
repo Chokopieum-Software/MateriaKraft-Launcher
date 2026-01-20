@@ -76,7 +76,7 @@ repositories {
 
 dependencies {
     implementation(project(":MLGD"))
-    implementation(compose.desktop.currentOs)
+    implementation(compose.desktop.common)
     implementation(compose.components.resources)
     implementation(compose.materialIconsExtended)
     implementation(compose.material3)
@@ -108,7 +108,7 @@ dependencies {
 }
 
 kotlin {
-    jvmToolchain(25)
+    jvmToolchain(21)
 }
 
 compose.desktop {
@@ -133,6 +133,7 @@ compose.desktop {
 
             windows {
                 menu = true
+                console = true
                 shortcut = true
                 upgradeUuid = "019b375c-3319-7eec-8098-e50668c43b5a"
             }
