@@ -79,10 +79,9 @@ fun main(args: Array<String>) {
         runCatching {
             MLGDClient.ensureDaemonRunning(pathManager.getLauncherDir())
         }.onFailure { e ->
+            println("Could not start or connect to MLGD daemon. The application will continue without it.")
             println(e.stackTraceToString())
-            splash?.isVisible = false
-            JOptionPane.showMessageDialog(null, "Could not start or connect to MLGD daemon.\n${e.message}", "Fatal Error", JOptionPane.ERROR_MESSAGE)
-            return@runBlocking
+            // Приложение продолжит запуск, но функционал, зависящий от MLGD, может быть ограничен.
         }
     }
 
