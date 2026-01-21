@@ -2,13 +2,12 @@ plugins {
     kotlin("jvm") version "2.3.0"
     kotlin("plugin.serialization") version "2.3.0"
     id("org.graalvm.buildtools.native") version "0.11.1"
-    application // Добавляем плагин application
+    application
 }
 
 group = "org.chokopieum.software"
 version = "Develop Build"
 
-// Конфигурация для плагина application
 application {
     mainClass.set("org.chokopieum.software.mlgd.MainKt")
 }
@@ -33,10 +32,16 @@ dependencies {
 }
 
 graalvmNative {
+    // 1. ГЛАВНОЕ ИСПРАВЛЕНИЕ:
+    // Отключаем поиск тулчейна, чтобы избежать ошибки с путями на разных дисках (C: vs D:)
+    toolchainDetection.set(false)
+
     binaries {
         named("main") {
             imageName.set("mlgd")
             mainClass.set("org.chokopieum.software.mlgd.MainKt")
+
+            // useArgFile.set(false)
 
             buildArgs.empty()
             buildArgs.addAll(
