@@ -32,13 +32,18 @@ dependencies {
 }
 
 graalvmNative {
+    // 1. ЗАПРЕЩАЕМ искать Java на диске C.
+    // Это заставит плагин взять JAVA_HOME, который мы установили на D.
+    toolchainDetection.set(false)
+
     binaries {
         named("main") {
             imageName.set("mlgd")
             mainClass.set("org.chokopieum.software.mlgd.MainKt")
 
-            // Убедитесь, что useArgFile НЕ установлен в false (удалите строку или поставьте true)
-            // useArgFile.set(true) // По умолчанию true
+            // 2. ВАЖНО: ОСТАВЛЯЕМ useArgFile ПО УМОЛЧАНИЮ (или true).
+            // Теперь, когда всё на одном диске (D:), аргументы с относительными путями сработают.
+            // useArgFile.set(true)
 
             buildArgs.empty()
             buildArgs.addAll(
