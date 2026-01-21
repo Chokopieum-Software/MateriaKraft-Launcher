@@ -184,7 +184,10 @@ tasks.register("CreateInstallerPackage") {
     group = "distribution"
     description = "Creates a distributable installer package with MLGD."
 
-    dependsOn("createDistributable", ":MLGD:nativeBuild")
+    if (!project.hasProperty("skipMlgdBuild")) {
+        dependsOn(":MLGD:nativeBuild")
+    }
+    dependsOn("createDistributable")
 
     doLast {
         val osName = System.getProperty("os.name")
@@ -194,7 +197,7 @@ tasks.register("CreateInstallerPackage") {
         val mlgdExecutable = project(":MLGD").file("build/native/nativeCompile/$mlgdExecutableName")
 
         if (!mlgdExecutable.exists()) {
-            throw GradleException("MLGD executable not found at ${mlgdExecutable.absolutePath}. Run :MLGD:nativeBuild first.")
+            throw GradleException("MLGD executable not found at ${mlgdExecutable.absolutePath}. Run :MLGD:nativeBuild first or ensure it was downloaded by the CI.")
         }
 
         val appDistDir = project.layout.buildDirectory.dir("compose/binaries/main/app").get().asFile

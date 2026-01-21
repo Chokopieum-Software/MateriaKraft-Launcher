@@ -4,12 +4,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-mlgd:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-
+    outputs:
+      os: ${{ matrix.os }}
+  
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,8 +27,61 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: chmod +x gradlew
 
+      - name: Build MLGD
+        run: ./gradlew :MLGD:nativeBuild
+
+      - name: Upload MLGD executable (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlgd-linux
+          path: MLGD/build/native/nativeCompile/mlgd
+
+      - name: Upload MLGD executable (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlgd-windows
+          path: MLGD/build/native/nativeCompile/mlgd.exe
+
+  build-launcher:
+    needs: build-mlgd
+    runs-on: ${{ needs.build-mlgd.outputs.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java (Zulu 21)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: chmod +x gradlew
+
+      - name: Download MLGD executable (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: mlgd-linux
+          path: MLGD/build/native/nativeCompile/
+
+      - name: Download MLGD executable (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: mlgd-windows
+          path: MLGD/build/native/nativeCompile/
+
       - name: Run CreateInstallerPackage Gradle task
-        run: ./gradlew CreateInstallerPackage
+        run: ./gradlew CreateInstallerPackage -PskipMlgdBuild=true
 
       - name: Upload installer package (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
