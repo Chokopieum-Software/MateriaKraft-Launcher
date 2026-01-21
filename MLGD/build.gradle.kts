@@ -35,10 +35,6 @@ dependencies {
 graalvmNative {
     binaries {
         named("main") {
-            javaLauncher.set(project.javaToolchains.launcherFor {
-                languageVersion.set(JavaLanguageVersion.of(21))
-            })
-
             imageName.set("mlgd")
             mainClass.set("org.chokopieum.software.mlgd.MainKt")
 
