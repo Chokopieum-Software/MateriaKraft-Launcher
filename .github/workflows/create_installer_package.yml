@@ -16,7 +16,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up GraalVM
+      # --- НАСТРОЙКА ДЛЯ LINUX (Стандартная) ---
+      - name: Set up GraalVM (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         uses: graalvm/setup-graalvm@v1
         with:
           java-version: '21'
@@ -24,18 +26,38 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: 'gradle'
 
+      # --- НАСТРОЙКА ДЛЯ WINDOWS (Ручная на диск D:) ---
+      - name: Set up GraalVM (Windows - Manual Install on D:)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: powershell
+        run: |
+          # Скачиваем Oracle GraalVM 21 прямо в рабочую папку (Диск D:)
+          Invoke-WebRequest -Uri "https://download.oracle.com/graalvm/21/latest/graalvm-jdk-21_windows-x64_bin.zip" -OutFile "graalvm.zip"
+          
+          # Распаковываем
+          Expand-Archive -Path "graalvm.zip" -DestinationPath .
+          
+          # Находим имя папки (оно может меняться в зависимости от минорной версии)
+          $graalPath = Get-ChildItem -Path . -Filter "graalvm-jdk-*" | Select-Object -ExpandProperty FullName
+          
+          # Устанавливаем переменные окружения
+          echo "JAVA_HOME=$graalPath" >> $env:GITHUB_ENV
+          echo "GRAALVM_HOME=$graalPath" >> $env:GITHUB_ENV
+          echo "$graalPath\bin" >> $env:GITHUB_PATH
+          
+          # Проверка версии
+          $graalPath\bin\java -version
+
       - name: Grant execute permission for gradlew
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: chmod +x gradlew
 
-      # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+      # Сборка
       - name: Build MLGD
         env:
-          # Это заставляет Gradle хранить кэш в папке проекта (D:),
-          # чтобы все файлы были на одном диске.
+          # Кэш Gradle тоже держим на диске D:
           GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
         run: ./gradlew :MLGD:nativeBuild
-      # -------------------------
 
       - name: Upload MLGD executable (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
@@ -88,8 +110,6 @@ jobs:
           path: MLGD/build/native/nativeCompile/
 
       - name: Run CreateInstallerPackage Gradle task
-        # Здесь тоже полезно добавить переменную, чтобы избежать перекачивания зависимостей заново,
-        # хотя критической ошибки тут обычно не бывает.
         env:
           GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
         run: ./gradlew CreateInstallerPackage -PskipMlgdBuild=true

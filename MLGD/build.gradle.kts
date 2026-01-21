@@ -32,18 +32,13 @@ dependencies {
 }
 
 graalvmNative {
-    // 1. ВАЖНО: Запрещаем Gradle искать тулчейн, чтобы он не лез на диск C:
-    toolchainDetection.set(false)
-
     binaries {
         named("main") {
             imageName.set("mlgd")
             mainClass.set("org.chokopieum.software.mlgd.MainKt")
 
-            // 2. ВАЖНО: Отключаем файл аргументов.
-            // Именно при его создании возникает ошибка 'other' has different root,
-            // так как он пытается записать относительные пути к библиотекам.
-            useArgFile.set(false)
+            // Убедитесь, что useArgFile НЕ установлен в false (удалите строку или поставьте true)
+            // useArgFile.set(true) // По умолчанию true
 
             buildArgs.empty()
             buildArgs.addAll(
