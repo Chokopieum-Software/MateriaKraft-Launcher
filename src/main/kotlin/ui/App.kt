@@ -1,15 +1,9 @@
-/*
- * Copyright 2025 Chokopieum Software
- *
- * НЕ ЯВЛЯЕТСЯ ОФИЦИАЛЬНЫМ ПРОДУКТОМ MINECRAFT. НЕ ОДОБРЕНО И НЕ СВЯЗАНО С КОМПАНИЕЙ MOJANG ИЛИ MICROSOFT.
- * Распространяется по лицензии MIT.
- * GITHUB: https://github.com/Chokopieum-Software/MateriaKraft-Launcher
- */
+package ui
+
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,17 +15,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.WindowPosition
-import androidx.compose.ui.window.application
-import androidx.compose.ui.window.rememberWindowState
 import com.sun.management.OperatingSystemMXBean
 import funlauncher.*
 import funlauncher.auth.Account
 import funlauncher.auth.AccountManager
-import funlauncher.database.DatabaseManager
 import funlauncher.game.MLGDClient
 import funlauncher.game.MinecraftInstaller
 import funlauncher.managers.BuildManager
@@ -40,87 +28,19 @@ import funlauncher.managers.JavaManager
 import funlauncher.managers.PathManager
 import funlauncher.net.DownloadManager
 import funlauncher.net.JavaDownloader
-import funlauncher.net.ModrinthApi
 import kotlinx.coroutines.*
 import org.chokopieum.software.materia_launcher.generated.resources.*
 import org.chokopieum.software.mlgd.StatusResponse
-import org.jetbrains.compose.resources.ExperimentalResourceApi
-import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
-import ui.dialogs.AddBuildDialog
-import ui.dialogs.ConfirmDeleteDialog
-import ui.dialogs.ErrorDialog
-import ui.dialogs.RamWarningDialog
+import state.AppState
 import ui.screens.*
+import ui.theme.AnimatedAppTheme
 import ui.widgets.BeautifulCircularProgressIndicator
 import ui.widgets.DownloadsPopup
-import ui.windows.GameConsoleWindow
-import java.awt.Dimension
-import java.awt.Image
-import java.awt.Toolkit
 import java.lang.management.ManagementFactory
-import java.time.Month
-import java.time.OffsetDateTime
-import java.util.*
-import javax.imageio.ImageIO
-import javax.swing.*
-import kotlin.math.min
 
 // Перечисление для вкладок навигации в приложении.
 enum class AppTab { Home, Modifications, Settings }
-
-// Цветовая схема "Day" (Светлая, с акцентными цветами).
-val dayColorScheme = lightColorScheme(
-    primary = Color(0xFFC06C84),
-    secondary = Color(0xFF6C5B7B),
-    tertiary = Color(0xFF355C7D),
-    background = Color(0xFFF8F3F1),
-    surface = Color(0xFFFFFFFF),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF333333),
-    onSurface = Color(0xFF333333),
-)
-
-// Цветовая схема "Amoled" (Темная, с черным фоном для AMOLED-экранов).
-val amoledColorScheme = darkColorScheme(
-    primary = Color(0xFFC06C84),
-    secondary = Color(0xFF6C5B7B),
-    tertiary = Color(0xFF355C7D),
-    background = Color.Black,
-    surface = Color(0xFF1A1A1A),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFFE0E0E0),
-    onSurface = Color(0xFFE0E0E0),
-)
-
-/**
- * Компонент, который применяет выбранную цветовую схему с анимацией.
- * @param theme Выбранная тема оформления.
- * @param content Содержимое, к которому применяется тема.
- */
-@Composable
-fun AnimatedAppTheme(
-    theme: Theme,
-    content: @Composable () -> Unit
-) {
-    val isSystemDark = isSystemInDarkTheme()
-    val colors = when (theme) {
-        Theme.System -> if (isSystemDark) darkColorScheme() else lightColorScheme()
-        Theme.Light -> lightColorScheme()
-        Theme.Dark -> darkColorScheme()
-        Theme.Day -> dayColorScheme
-        Theme.Amoled -> amoledColorScheme
-    }
-
-    MaterialTheme(
-        colorScheme = colors,
-        content = content
-    )
-}
 
 /**
  * Главный компонент приложения, который управляет состоянием и отображением основного интерфейса.
@@ -564,342 +484,5 @@ fun App(
                 }
             }
         )
-    }
-}
-
-/**
- * Компонент, который управляет отображением всех модальных окон и диалогов поверх основного интерфейса.
- */
-@Composable
-fun AppOverlays(
-    appState: AppState,
-    showJavaManagerWindow: Boolean,
-    onCloseJavaManagerWindow: () -> Unit,
-    javaManager: JavaManager,
-    javaDownloader: JavaDownloader,
-    showAddBuildDialog: Boolean,
-    onCloseAddBuildDialog: () -> Unit,
-    onAddBuild: (String, String, BuildType, String?) -> Unit,
-    pathManager: PathManager,
-    buildSettingsToShow: MinecraftBuild?,
-    onCloseBuildSettings: () -> Unit,
-    onSaveBuildSettings: (String, String, BuildType, String?, String?, Int?, String?, String?) -> Unit,
-    showAccountScreen: Boolean,
-    onCloseAccountScreen: () -> Unit,
-    onAccountSelected: (Account) -> Unit,
-    accountManager: AccountManager,
-    showGameConsole: Boolean,
-    onCloseGameConsole: () -> Unit,
-    ramWarningDialogToShow: MinecraftBuild?,
-    onCloseRamWarningDialog: () -> Unit,
-    onConfirmRamWarning: (MinecraftBuild) -> Unit,
-    errorDialogMessage: String?,
-    onDismissErrorDialog: () -> Unit,
-    buildToDelete: MinecraftBuild?,
-    onDismissDeleteDialog: () -> Unit,
-    onConfirmDelete: (MinecraftBuild) -> Unit
-) {
-    if (showJavaManagerWindow) {
-        JavaManagerWindow(
-            onCloseRequest = onCloseJavaManagerWindow,
-            javaManager = javaManager,
-            javaDownloader = javaDownloader,
-            appSettings = appState.settings
-        )
-    }
-    if (showAddBuildDialog) {
-        AddBuildDialog(
-            onDismiss = onCloseAddBuildDialog,
-            onAdd = onAddBuild,
-            pathManager = pathManager
-        )
-    }
-    buildSettingsToShow?.let { build ->
-        BuildSettingsScreen(
-            build = build,
-            globalSettings = appState.settings,
-            onDismiss = onCloseBuildSettings,
-            onSave = onSaveBuildSettings,
-            pathManager = pathManager
-        )
-    }
-    if (showAccountScreen) {
-        AccountScreen(
-            accountManager = accountManager,
-            onDismiss = onCloseAccountScreen,
-            onAccountSelected = onAccountSelected
-        )
-    }
-    if (showGameConsole) {
-        GameConsoleWindow(onCloseRequest = onCloseGameConsole)
-    }
-    ramWarningDialogToShow?.let { build ->
-        RamWarningDialog(
-            build = build,
-            onDismiss = onCloseRamWarningDialog,
-            onConfirm = { onConfirmRamWarning(build) }
-        )
-    }
-    errorDialogMessage?.let { message ->
-        ErrorDialog(
-            message = message,
-            onDismiss = onDismissErrorDialog
-        )
-    }
-    buildToDelete?.let { build ->
-        ConfirmDeleteDialog(
-            build = build,
-            onDismiss = onDismissDeleteDialog,
-            onConfirm = { onConfirmDelete(build) }
-        )
-    }
-}
-
-// Запечатанный класс для представления различных экранов приложения.
-private sealed class Screen {
-    object Splash : Screen() // Экран-заставка
-    object FirstRunWizard : Screen() // Мастер первоначальной настройки
-    data class MainApp(val state: AppState) : Screen() // Основной экран приложения
-}
-
-// Класс данных, хранящий полное состояние приложения.
-data class AppState(
-    val settings: AppSettings,
-    val builds: List<MinecraftBuild>,
-    val accounts: List<Account>
-)
-
-// Флаг, указывающий, что основной контент готов к отображению (используется для скрытия сплеш-скрина).
-var isContentReady by mutableStateOf(false)
-
-private fun createAndShowSplashScreen(statusLabel: JLabel): JWindow? {
-    return runCatching {
-        JWindow().apply {
-            val props = Properties().apply {
-                Thread.currentThread().contextClassLoader.getResourceAsStream("app.properties")?.use(::load)
-            }
-            val version = props.getProperty("version", "Unknown")
-            val buildNumber = props.getProperty("buildNumber", "N/A")
-            val versionText = "$version ($buildNumber)"
-
-            val versionLabel = JLabel(versionText, SwingConstants.RIGHT).apply {
-                foreground = java.awt.Color.WHITE
-            }
-            statusLabel.apply {
-                foreground = java.awt.Color.WHITE
-                horizontalAlignment = SwingConstants.RIGHT
-            }
-
-            val originalImage = ImageIO.read(Thread.currentThread().contextClassLoader.getResource("banner.png"))
-            val screenSize = Toolkit.getDefaultToolkit().screenSize
-            val targetWidth = screenSize.width / 2.5
-            val targetHeight = screenSize.height / 2.5
-            val ratio = min(targetWidth / originalImage.width, targetHeight / originalImage.height)
-            val newWidth = (originalImage.width * ratio).toInt()
-            val newHeight = (originalImage.height * ratio).toInt()
-            val finalImage = originalImage.getScaledInstance(newWidth, newHeight, Image.SCALE_SMOOTH)
-
-            contentPane = JLayeredPane().apply {
-                preferredSize = Dimension(newWidth, newHeight)
-                val margin = 10
-                
-                add(JLabel(ImageIcon(finalImage)).apply {
-                    setBounds(0, 0, newWidth, newHeight)
-                }, JLayeredPane.DEFAULT_LAYER)
-                
-                add(statusLabel.apply {
-                    setBounds(0, newHeight - 30 - margin, newWidth - margin, 20)
-                }, JLayeredPane.PALETTE_LAYER)
-
-                add(versionLabel.apply {
-                    setBounds(0, newHeight - 15 - margin, newWidth - margin, 20)
-                }, JLayeredPane.PALETTE_LAYER)
-            }
-            pack()
-            setLocationRelativeTo(null)
-            isVisible = true
-        }
-    }.onFailure {
-        println("Failed to create splash screen: ${it.stackTraceToString()}")
-    }.getOrNull()
-}
-
-// Главная функция, точка входа в приложение.
-@OptIn(ExperimentalResourceApi::class)
-fun main() {
-    runBlocking(Dispatchers.IO) {
-        val pathManager = PathManager(PathManager.getDefaultAppDataDirectory())
-        DatabaseManager.init(pathManager)
-        val settingsManager = SettingsManager(pathManager)
-        val settings = settingsManager.loadSettings()
-        Locale.setDefault(Locale(settings.language))
-    }
-
-    // Попытка установить оптимальный рендер-API (Vulkan или OpenGL) для Skiko.
-    runCatching {
-        val os = System.getProperty("os.name").lowercase()
-        if (!os.contains("mac")) {
-            val renderApi = try {
-                Class.forName("org.jetbrains.skiko.vulkan.VulkanWindow")
-                "VULKAN"
-            } catch (_: Throwable) {
-                "OPENGL"
-            }
-            System.setProperty("skiko.renderApi", renderApi)
-            println("Using render API: $renderApi")
-        }
-    }
-
-    // Создание и отображение сплеш-скрина с помощью Swing.
-    val statusLabel = JLabel("Initializing...")
-    val splash = createAndShowSplashScreen(statusLabel)
-
-    // Запуск и проверка доступности демона MLGD.
-    runBlocking {
-        val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
-        SwingUtilities.invokeLater { statusLabel.text = "Starting daemon..." }
-        runCatching {
-            MLGDClient.ensureDaemonRunning(pathManager.getLauncherDir())
-        }.onFailure { e ->
-            println(e.stackTraceToString())
-            splash?.isVisible = false
-            JOptionPane.showMessageDialog(null, "Could not start or connect to MLGD daemon.\n${e.message}", "Fatal Error", JOptionPane.ERROR_MESSAGE)
-            return@runBlocking
-        }
-    }
-
-    // Запуск основного цикла приложения Compose.
-    application {
-        var currentScreen by remember { mutableStateOf<Screen>(Screen.Splash) }
-        var appState by remember { mutableStateOf<AppState?>(null) }
-        val scope = rememberCoroutineScope()
-
-        // Выбор иконки приложения в зависимости от времени года (зима/не зима).
-        val month = OffsetDateTime.now().month // TODO: Перенести в ресурсы
-        val isWinter = month == Month.DECEMBER || month == Month.JANUARY || month == Month.FEBRUARY
-        val icon = if (isWinter) {
-            painterResource(Res.drawable.MLicon_snow)
-        } else {
-            painterResource(Res.drawable.MLicon)
-        }
-
-        // Ленивая инициализация менеджеров.
-        val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
-        val settingsManager by lazy { SettingsManager(pathManager) }
-        val buildManager by lazy { BuildManager(pathManager) }
-        val accountManager by lazy { AccountManager(pathManager) }
-        val javaManager by lazy { JavaManager(pathManager) }
-        val javaDownloader by lazy { JavaDownloader(pathManager, javaManager) }
-        val cacheManager by lazy { CacheManager(pathManager) }
-        val modrinthApi by lazy { ModrinthApi(cacheManager) }
-
-        // Эффект для скрытия сплеш-скрина, когда контент готов.
-        LaunchedEffect(isContentReady) {
-            if (isContentReady) {
-                splash?.isVisible = false
-                splash?.dispose()
-            }
-        }
-
-        // Главный эффект, который управляет переключением между экранами (Splash -> Wizard/MainApp).
-        LaunchedEffect(currentScreen) {
-            if (currentScreen is Screen.Splash) {
-                isContentReady = false
-                scope.launch(Dispatchers.IO) {
-                    if (pathManager.isFirstRunRequired()) {
-                        withContext(Dispatchers.Main) {
-                            currentScreen = Screen.FirstRunWizard
-                        }
-                    } else {
-                        // Асинхронная загрузка всех необходимых данных.
-                        SwingUtilities.invokeLater { statusLabel.text = "Loading UI..." }
-                        val settingsJob = async { settingsManager.loadSettings() }
-                        val buildsJob = async { buildManager.loadBuilds() }
-                        val accountsJob = async { accountManager.loadAccounts() }
-
-                        val loadedState = AppState(
-                            settings = settingsJob.await(),
-                            builds = buildsJob.await(),
-                            accounts = accountsJob.await()
-                        )
-                        withContext(Dispatchers.Main) {
-                            appState = loadedState
-                            currentScreen = Screen.MainApp(loadedState)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Рендеринг текущего экрана в зависимости от состояния.
-        when (currentScreen) {
-            is Screen.Splash -> { /* Ничего не делаем, сплеш уже показан */ }
-            is Screen.FirstRunWizard -> {
-                var wizardTheme by remember { mutableStateOf(Theme.Dark) }
-                Window(
-                    onCloseRequest = {
-                        scope.launch {
-                            // Корректное завершение работы.
-                            MLGDClient.shutdown()
-                            modrinthApi.close()
-                            exitApplication()
-                        }
-                    },
-                    title = "Materia - Мастер настройки",
-                    visible = isContentReady,
-                    icon = icon,
-                    state = rememberWindowState(width = 600.dp, height = 700.dp, position = WindowPosition(Alignment.Center))
-                ) {
-                    AnimatedAppTheme(wizardTheme) {
-                        FirstRunWizard(
-                            accountManager = accountManager,
-                            initialTheme = wizardTheme,
-                            onThemeChange = { wizardTheme = it },
-                            onWizardComplete = { newSettings ->
-                                scope.launch(Dispatchers.IO) {
-                                    pathManager.createRequiredDirectories()
-                                    settingsManager.saveSettings(newSettings)
-                                    currentScreen = Screen.Splash
-                                }
-                            }
-                        )
-                        SideEffect { if (!isContentReady) isContentReady = true }
-                    }
-                }
-            }
-            is Screen.MainApp -> {
-                appState?.let { state ->
-                    Window(
-                        onCloseRequest = {
-                            // Корректное завершение работы.
-                            scope.launch {
-                                MLGDClient.shutdown()
-                                modrinthApi.close()
-                                exitApplication()
-                            }
-                        },
-                        title = stringResource(Res.string.app_name),
-                        visible = isContentReady,
-                        icon = icon,
-                        state = rememberWindowState(width = 1024.dp, height = 768.dp)
-                    ) {
-                        App(
-                            appState = state,
-                            onSettingsChange = { newSettings ->
-                                appState = state.copy(settings = newSettings)
-                                scope.launch { settingsManager.saveSettings(newSettings) }
-                            },
-                            buildManager = buildManager,
-                            javaManager = javaManager,
-                            accountManager = accountManager,
-                            javaDownloader = javaDownloader,
-                            pathManager = pathManager,
-                            cacheManager = cacheManager
-                        )
-                        SideEffect { if (!isContentReady) isContentReady = true }
-                    }
-                }
-            }
-        }
     }
 }

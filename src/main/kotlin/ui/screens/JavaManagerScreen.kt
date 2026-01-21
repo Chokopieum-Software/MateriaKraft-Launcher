@@ -25,7 +25,7 @@ import funlauncher.managers.JavaManager
 import funlauncher.net.DownloadManager
 import funlauncher.net.JavaDownloader
 import kotlinx.coroutines.launch
-import ui.theme.AppTheme
+import ui.theme.AnimatedAppTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,7 +89,7 @@ fun JavaManagerWindow(
     }
 
     Dialog(onDismissRequest = onCloseRequest) {
-        AppTheme(appSettings.theme) {
+        AnimatedAppTheme(appSettings.theme) {
             Scaffold(
                 topBar = {
                     TopAppBar(title = { Text("Управление Java") })
@@ -122,7 +122,7 @@ fun JavaManagerWindow(
                                     items(installations?.launcher ?: emptyList()) { java ->
                                         JavaListItem(java, isDeleting = java == javaToDelete) { delete(java) }
                                     }
-                                }
+                                 }
                             }
                             Column(Modifier.weight(1f).padding(start = 8.dp)) {
                                 Text("Обнаружено в системе", style = MaterialTheme.typography.titleMedium)
@@ -179,7 +179,7 @@ private fun JavaListItem(java: JavaInfo, isDeleting: Boolean, onDelete: (() -> U
 private fun InstallJavaDialog(onDismiss: () -> Unit, onInstall: (Int) -> Unit, theme: Theme) {
     val versions = listOf(8, 11, 17, 21, 25)
     Dialog(onDismissRequest = onDismiss) {
-        AppTheme(theme) {
+        AnimatedAppTheme(theme) {
             Card(Modifier.padding(16.dp)) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Выберите версию JDK для установки", style = MaterialTheme.typography.titleLarge)

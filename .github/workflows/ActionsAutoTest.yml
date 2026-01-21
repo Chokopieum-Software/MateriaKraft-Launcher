@@ -1,0 +1,32 @@
+name: Actions Auto Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-ui-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'zulu'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Run Launcher UI Test
+        run: |
+          ./gradlew :run --args="--uitest" | tee output.log
+          if (Get-Content output.log | Select-String -Pattern "MATERIAKRAFT_LAUNCHER_UI_TEST_SUCCESS") {
+            echo "UI Test Passed: Main screen loaded successfully."
+            exit 0
+          } else {
+            echo "UI Test Failed: Main screen did not load."
+            exit 1
+          }
+        shell: pwsh

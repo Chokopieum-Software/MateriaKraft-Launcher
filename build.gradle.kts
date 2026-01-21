@@ -103,8 +103,6 @@ dependencies {
     implementation("org.jetbrains.exposed:exposed-dao:0.52.0")
     implementation("org.jetbrains.exposed:exposed-jdbc:0.52.0")
     implementation("org.xerial:sqlite-jdbc:3.46.0.0")
-
-    testImplementation(kotlin("test-junit5"))
 }
 
 kotlin {
@@ -113,7 +111,7 @@ kotlin {
 
 compose.desktop {
     application {
-        mainClass = "MainKt"
+        mainClass = "InitKt"
 
         nativeDistributions {
             packageName = "materia-launcher"
@@ -133,7 +131,6 @@ compose.desktop {
 
             windows {
                 menu = true
-                console = true
                 shortcut = true
                 upgradeUuid = "019b375c-3319-7eec-8098-e50668c43b5a"
             }
@@ -147,10 +144,6 @@ afterEvaluate {
         duplicatesStrategy = DuplicatesStrategy.EXCLUDE
         exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     }
-}
-
-tasks.withType<Test> {
-    useJUnitPlatform()
 }
 
 tasks.named<Copy>("processResources") {
@@ -179,7 +172,7 @@ tasks.named<Copy>("processResources") {
 
 compose.resources {
     // Укажите тот пакет, который вы хотите использовать
-    packageOfResClass = "org.chokopieum.software.materia_launcher.generated.resources."
+    packageOfResClass = "org.chokopieum.software.materia_launcher.generated.resources"
 
     // Если нужно, чтобы ресурсы были видны в других модулях
     publicResClass = true
