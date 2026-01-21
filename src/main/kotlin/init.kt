@@ -112,7 +112,7 @@ fun main(args: Array<String>) {
     runBlocking {
         SwingUtilities.invokeLater { statusLabel.text = "Starting daemon..." }
         runCatching {
-            MLGDClient.ensureDaemonRunning(globalPathManager.getLauncherDir())
+            MLGDClient.ensureDaemonRunning(globalPathManager)
         }.onFailure { e ->
             println("Could not start or connect to MLGD daemon. The application will continue without it.")
             println(e.stackTraceToString())
