@@ -11,12 +11,12 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     outputs:
       os: ${{ matrix.os }}
-
+  
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- LINUX SETUP (Стандартный, там проблем нет) ---
+      # --- LINUX (Без изменений) ---
       - name: Set up GraalVM (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
         uses: graalvm/setup-graalvm@v1
@@ -26,39 +26,37 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: 'gradle'
 
-      # --- WINDOWS SETUP (Ручной на диск D:) ---
-      - name: Set up GraalVM (Windows - Manual on D:)
+      # --- WINDOWS (Стандартный setup на C:) ---
+      - name: Set up GraalVM (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
-        shell: powershell
-        run: |
-          Write-Host "Downloading GraalVM 21..."
-          $url = "https://download.oracle.com/graalvm/21/latest/graalvm-jdk-21_windows-x64_bin.zip"
-          Invoke-WebRequest -Uri $url -OutFile "graalvm.zip"
-          
-          Write-Host "Extracting..."
-          Expand-Archive -Path "graalvm.zip" -DestinationPath . -Force
-          
-          # Находим путь к папке (чтобы не зависеть от точной версии в имени)
-          $graalPath = Get-ChildItem -Path . -Directory -Filter "graalvm-jdk-*" | Select-Object -First 1 -ExpandProperty FullName
-          Write-Host "GraalVM installed at: $graalPath"
-          
-          # Сохраняем переменные в окружение GitHub Actions для следующих шагов
-          "JAVA_HOME=$graalPath" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "GRAALVM_HOME=$graalPath" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "$graalPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: 'gradle'
 
       - name: Grant execute permission for gradlew
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: chmod +x gradlew
 
-      # --- СБОРКА WINDOWS (Спец. флаги) ---
-      # Мы явно передаем путь к Java через -Dorg.gradle.java.home,
-      # чтобы Gradle не смел использовать системную Java с диска C:
-      - name: Build MLGD (Windows)
+      # --- СБОРКА WINDOWS (ПЕРЕНОС НА C:) ---
+      - name: Prepare and Build on Drive C (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
-        env:
-          GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
-        run: ./gradlew :MLGD:nativeBuild -Dorg.gradle.java.home="$env:JAVA_HOME"
+        shell: powershell
+        run: |
+          # 1. Создаем папку на диске C
+          New-Item -ItemType Directory -Force -Path "C:\Build"
+          
+          # 2. Копируем проект с D: на C:
+          Write-Host "Copying project to C:\Build..."
+          Copy-Item -Path "${{ github.workspace }}\*" -Destination "C:\Build" -Recurse -Force
+          
+          # 3. Переходим на диск C и запускаем сборку
+          Set-Location "C:\Build"
+          
+          # Запускаем Gradle (JAVA_HOME уже настроен на C: экшеном setup-graalvm)
+          ./gradlew :MLGD:nativeBuild
 
       # --- СБОРКА LINUX (Обычная) ---
       - name: Build MLGD (Linux)
@@ -72,12 +70,14 @@ jobs:
           name: mlgd-linux
           path: MLGD/build/native/nativeCompile/mlgd
 
+      # --- ЗАГРУЗКА АРТЕФАКТА WINDOWS (С диска C:) ---
       - name: Upload MLGD executable (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         uses: actions/upload-artifact@v4
         with:
           name: mlgd-windows
-          path: MLGD/build/native/nativeCompile/mlgd.exe
+          # Указываем путь к файлу на диске C
+          path: C:\Build\MLGD\build\native\nativeCompile\mlgd.exe
 
   build-launcher:
     needs: build-mlgd
@@ -116,9 +116,6 @@ jobs:
           path: MLGD/build/native/nativeCompile/
 
       - name: Run CreateInstallerPackage Gradle task
-        env:
-          # Для надежности тоже используем локальный кэш
-          GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
         run: ./gradlew CreateInstallerPackage -PskipMlgdBuild=true
 
       - name: Upload installer package (Linux)
