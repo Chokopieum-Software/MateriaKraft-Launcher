@@ -4,5 +4,3 @@ plugins {
 rootProject.name = "Materia Launcher"
 
 include("MLGD")
-
-include("MLCA")

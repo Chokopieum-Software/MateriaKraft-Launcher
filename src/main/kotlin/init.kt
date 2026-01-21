@@ -68,14 +68,6 @@ fun main(args: Array<String>) {
         }
     }
 
-    runBlocking(Dispatchers.IO) {
-        val pathManager = PathManager(PathManager.getDefaultAppDataDirectory())
-        DatabaseManager.init(pathManager)
-        val settingsManager = SettingsManager(pathManager)
-        val settings = settingsManager.loadSettings()
-        Locale.setDefault(Locale(settings.language))
-    }
-
     // Создание и отображение сплеш-скрина с помощью Swing.
     val statusLabel = JLabel("Initializing...")
     val splash = createAndShowSplashScreen(statusLabel)
@@ -137,6 +129,8 @@ fun main(args: Array<String>) {
                             currentScreen = Screen.FirstRunWizard
                         }
                     } else {
+                        // Инициализация базы данных только после проверки первого запуска
+                        DatabaseManager.init(pathManager)
                         // Асинхронная загрузка всех необходимых данных.
                         SwingUtilities.invokeLater { statusLabel.text = "Loading UI..." }
                         val settingsJob = async { settingsManager.loadSettings() }
@@ -184,6 +178,8 @@ fun main(args: Array<String>) {
                             onWizardComplete = { newSettings ->
                                 scope.launch(Dispatchers.IO) {
                                     pathManager.createRequiredDirectories()
+                                    // Инициализация базы данных после создания каталогов
+                                    DatabaseManager.init(pathManager)
                                     settingsManager.saveSettings(newSettings)
                                     currentScreen = Screen.Splash
                                 }
