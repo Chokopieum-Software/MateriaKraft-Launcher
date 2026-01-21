@@ -16,7 +16,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- НАСТРОЙКА ДЛЯ LINUX (Стандартная) ---
+      # --- LINUX SETUP (Стандартный, там проблем нет) ---
       - name: Set up GraalVM (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
         uses: graalvm/setup-graalvm@v1
@@ -26,42 +26,43 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           cache: 'gradle'
 
-      # --- НАСТРОЙКА ДЛЯ WINDOWS (Ручная на диск D:) ---
-      - name: Set up GraalVM (Windows - Manual Install on D:)
+      # --- WINDOWS SETUP (Ручной на диск D:) ---
+      - name: Set up GraalVM (Windows - Manual on D:)
         if: ${{ matrix.os == 'windows-latest' }}
         shell: powershell
         run: |
-          # 1. Скачиваем Oracle GraalVM 21
-          Write-Host "Downloading GraalVM..."
-          Invoke-WebRequest -Uri "https://download.oracle.com/graalvm/21/latest/graalvm-jdk-21_windows-x64_bin.zip" -OutFile "graalvm.zip"
+          Write-Host "Downloading GraalVM 21..."
+          $url = "https://download.oracle.com/graalvm/21/latest/graalvm-jdk-21_windows-x64_bin.zip"
+          Invoke-WebRequest -Uri $url -OutFile "graalvm.zip"
           
-          # 2. Распаковываем
           Write-Host "Extracting..."
           Expand-Archive -Path "graalvm.zip" -DestinationPath . -Force
           
-          # 3. Находим путь к папке (чтобы не гадать имя папки)
-          $graalFolder = Get-ChildItem -Path . -Directory -Filter "graalvm-jdk-*" | Select-Object -First 1 -ExpandProperty FullName
-          Write-Host "GraalVM detected at: $graalFolder"
+          # Находим путь к папке (чтобы не зависеть от точной версии в имени)
+          $graalPath = Get-ChildItem -Path . -Directory -Filter "graalvm-jdk-*" | Select-Object -First 1 -ExpandProperty FullName
+          Write-Host "GraalVM installed at: $graalPath"
           
-          # 4. Настраиваем переменные окружения для СЛЕДУЮЩИХ шагов
-          # Это запишет переменные в файл окружения GitHub Actions
-          "JAVA_HOME=$graalFolder" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "GRAALVM_HOME=$graalFolder" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "$graalFolder\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-          
-          # 5. Проверяем версию (ИСПРАВЛЕННЫЙ СИНТАКСИС)
-          # Используем оператор '&' для запуска команды из переменной
-          & "$graalFolder\bin\java.exe" -version
+          # Сохраняем переменные в окружение GitHub Actions для следующих шагов
+          "JAVA_HOME=$graalPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "GRAALVM_HOME=$graalPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$graalPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Grant execute permission for gradlew
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: chmod +x gradlew
 
-      # Сборка
-      - name: Build MLGD
+      # --- СБОРКА WINDOWS (Спец. флаги) ---
+      # Мы явно передаем путь к Java через -Dorg.gradle.java.home,
+      # чтобы Gradle не смел использовать системную Java с диска C:
+      - name: Build MLGD (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
         env:
-          # Кэш Gradle тоже держим на диске D:
           GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
+        run: ./gradlew :MLGD:nativeBuild -Dorg.gradle.java.home="$env:JAVA_HOME"
+
+      # --- СБОРКА LINUX (Обычная) ---
+      - name: Build MLGD (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: ./gradlew :MLGD:nativeBuild
 
       - name: Upload MLGD executable (Linux)
@@ -116,6 +117,7 @@ jobs:
 
       - name: Run CreateInstallerPackage Gradle task
         env:
+          # Для надежности тоже используем локальный кэш
           GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
         run: ./gradlew CreateInstallerPackage -PskipMlgdBuild=true
 

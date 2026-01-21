@@ -32,8 +32,7 @@ dependencies {
 }
 
 graalvmNative {
-    // 1. ЗАПРЕЩАЕМ искать Java на диске C.
-    // Это заставит плагин взять JAVA_HOME, который мы установили на D.
+    // 1. Отключаем автопоиск, чтобы Gradle слушал наш флаг из Workflow
     toolchainDetection.set(false)
 
     binaries {
@@ -41,9 +40,8 @@ graalvmNative {
             imageName.set("mlgd")
             mainClass.set("org.chokopieum.software.mlgd.MainKt")
 
-            // 2. ВАЖНО: ОСТАВЛЯЕМ useArgFile ПО УМОЛЧАНИЮ (или true).
-            // Теперь, когда всё на одном диске (D:), аргументы с относительными путями сработают.
-            // useArgFile.set(true)
+            // 2. Строку useArgFile удаляем или ставим в true.
+            // НЕ ставьте false, иначе будет ошибка "Command line too long".
 
             buildArgs.empty()
             buildArgs.addAll(
