@@ -36,7 +36,7 @@ graalvmNative {
     binaries {
         named("main") {
             javaLauncher.set(project.javaToolchains.launcherFor {
-                languageVersion.set(JavaLanguageVersion.of(25))
+                languageVersion.set(JavaLanguageVersion.of(21))
             })
 
             imageName.set("mlgd")
