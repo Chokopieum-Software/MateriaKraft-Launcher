@@ -10,6 +10,7 @@ package funlauncher.managers
 
 import funlauncher.MinecraftBuild
 import java.io.File
+import java.net.URISyntaxException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -25,7 +26,26 @@ class PathManager(private val rootDir: Path) {
      * Возвращает путь к директории, где находится исполняемый файл лаунчера.
      */
     fun getLauncherDir(): File {
-        // Предполагаем, что JAR находится в текущей рабочей директории
+        try {
+            val source = PathManager::class.java.protectionDomain.codeSource
+            if (source != null) {
+                val path = source.location.toURI()
+                var file = File(path)
+                // Если мы запускаемся из JAR, то parentFile будет правильным путем.
+                // Если из IDE, то file будет указывать на папку с классами, и нам нужно подняться на несколько уровней.
+                if (file.path.endsWith(".jar")) {
+                    return file.parentFile
+                }
+                // Для запуска из IDE, путь может быть .../build/classes/kotlin/main
+                while (file != null && !File(file, "gradlew").exists()) {
+                    file = file.parentFile
+                }
+                return file ?: File(System.getProperty("user.dir"))
+            }
+        } catch (e: URISyntaxException) {
+            e.printStackTrace()
+        }
+        // Fallback на случай, если определение пути не удалось
         return File(System.getProperty("user.dir"))
     }
 

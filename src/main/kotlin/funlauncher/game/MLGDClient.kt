@@ -1,5 +1,6 @@
 package funlauncher.game
 
+import funlauncher.managers.PathManager
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -59,37 +60,62 @@ object MLGDClient {
         }
     }
 
-    suspend fun ensureDaemonRunning(projectRoot: File) {
+    private fun findDaemonExecutable(pathManager: PathManager): File? {
+        val os = System.getProperty("os.name").lowercase()
+        val daemonFileName = if (os.contains("win")) "mlgd.exe" else "mlgd"
+        val launcherDir = pathManager.getLauncherDir()
+
+        // 1. Искать рядом с JAR'ом
+        val alongsideJar = File(launcherDir, daemonFileName)
+        if (alongsideJar.exists()) {
+            println("Found MLGD executable alongside launcher: ${alongsideJar.absolutePath}")
+            return alongsideJar
+        }
+
+        // 2. Искать в папке 'app'
+        val inAppDir = File(launcherDir, "app/$daemonFileName")
+        if (inAppDir.exists()) {
+            println("Found MLGD executable in app directory: ${inAppDir.absolutePath}")
+            return inAppDir
+        }
+
+        // 3. Искать в пути для разработки
+        val devPath = launcherDir.resolve("MLGD/build/native/nativeCompile/$daemonFileName")
+        if (devPath.exists()) {
+            println("Found MLGD executable in development path: ${devPath.absolutePath}")
+            return devPath
+        }
+
+        return null
+    }
+
+    suspend fun ensureDaemonRunning(pathManager: PathManager) {
         if (ping()) {
             println("MLGD is already running.")
             return
         }
 
         println("MLGD not found, starting it...")
+
+        val daemonFile = findDaemonExecutable(pathManager)
+            ?: throw IllegalStateException("MLGD executable not found. Searched in launcher directory, app/ subdirectory, and common development paths.")
+
         val os = System.getProperty("os.name").lowercase()
-        val daemonFileName = if (os.contains("win")) "mlgd.exe" else "mlgd"
-        
-        // Правильный путь к скомпилированному файлу
-        val daemonFile = projectRoot.resolve("MLGD/build/native/nativeCompile/$daemonFileName")
-
-        if (!daemonFile.exists()) {
-            throw IllegalStateException("Daemon executable not found: ${daemonFile.absolutePath}\nDid you run the 'nativeCompile' Gradle task for the MLGD module?")
-        }
-
         if (!os.contains("win") && !daemonFile.canExecute()) {
+            println("Making MLGD executable...")
             daemonFile.setExecutable(true)
         }
 
         withContext(Dispatchers.IO) {
-            val logFile = projectRoot.resolve("mlgd-stdout.log")
-            val errorFile = projectRoot.resolve("mlgd-stderr.log")
+            val logFile = pathManager.getAppDataDirectory().resolve("mlgd-stdout.log").toFile()
+            val errorFile = pathManager.getAppDataDirectory().resolve("mlgd-stderr.log").toFile()
 
             println("Redirecting daemon output to:")
             println("STDOUT: ${logFile.absolutePath}")
             println("STDERR: ${errorFile.absolutePath}")
 
             ProcessBuilder(daemonFile.absolutePath)
-                .directory(projectRoot)
+                .directory(daemonFile.parentFile) // Запускаем из папки, где находится исполняемый файл
                 .redirectOutput(logFile)
                 .redirectError(errorFile)
                 .start()

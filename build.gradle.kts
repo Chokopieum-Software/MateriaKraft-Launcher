@@ -3,6 +3,7 @@ import org.gradle.jvm.tasks.Jar
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.*
+import org.gradle.api.GradleException
 
 plugins {
     kotlin("jvm") version "2.3.0"
@@ -177,4 +178,71 @@ compose.resources {
     // Если нужно, чтобы ресурсы были видны в других модулях
     publicResClass = true
     generateResClass = always
+}
+
+tasks.register("CreateInstallerPackage") {
+    group = "distribution"
+    description = "Creates a distributable installer package with MLGD."
+
+    dependsOn("createDistributable", ":MLGD:nativeBuild")
+
+    doLast {
+        val osName = System.getProperty("os.name")
+        val isWindows = osName.lowercase(Locale.getDefault()).contains("win")
+
+        val mlgdExecutableName = if (isWindows) "mlgd.exe" else "mlgd"
+        val mlgdExecutable = project(":MLGD").file("build/native/nativeCompile/$mlgdExecutableName")
+
+        if (!mlgdExecutable.exists()) {
+            throw GradleException("MLGD executable not found at ${mlgdExecutable.absolutePath}. Run :MLGD:nativeBuild first.")
+        }
+
+        val appDistDir = project.layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
+
+        if (isWindows) {
+            copy {
+                from(mlgdExecutable)
+                into(appDistDir)
+                println("Copied ${mlgdExecutable.name} to ${appDistDir.absolutePath}")
+            }
+        } else {
+            val binDir = File("$appDistDir/materia-launcher/bin")
+            copy {
+                from(mlgdExecutable)
+                into(binDir)
+                println("Copied ${mlgdExecutable.name} to ${binDir.absolutePath}")
+            }
+            // Установка прав на исполнение
+            File(binDir, mlgdExecutableName).setExecutable(true)
+            File(binDir, "materia-launcher").setExecutable(true)
+            println("Set executable permissions for mlgd and materia-launcher scripts.")
+        }
+
+        val distDir = project.layout.buildDirectory.dir("dist").get().asFile
+        if (!distDir.exists()) {
+            distDir.mkdirs()
+        }
+
+        val archiveFileName = "MateriaLauncher-${project.version}-${osName.replace(" ", "_")}"
+        
+        if (isWindows) {
+            val archiveFile = file("$distDir/$archiveFileName.zip")
+            ant.withGroovyBuilder {
+                "zip"("destfile" to archiveFile) {
+                    "fileset"("dir" to appDistDir)
+                }
+            }
+            println("Created installer package: ${archiveFile.absolutePath}")
+        } else {
+            val archiveFile = file("$distDir/$archiveFileName.tar.gz")
+            ant.withGroovyBuilder {
+                "tar"("destfile" to archiveFile, "compression" to "gzip", "longfile" to "gnu") {
+                    "tarfileset"("dir" to appDistDir) {
+                        // Права уже установлены, просто добавляем все файлы
+                    }
+                }
+            }
+            println("Created installer package: ${archiveFile.absolutePath}")
+        }
+    }
 }

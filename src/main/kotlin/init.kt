@@ -43,7 +43,16 @@ import javax.swing.SwingUtilities
 // Флаг, указывающий, что основной контент готов к отображению (используется для скрытия сплеш-скрина).
 var isContentReady by mutableStateOf(false)
 
-// Главная функция, точка входа в приложение.
+// Глобальные переменные для менеджеров, которые должны быть инициализированы до запуска Compose UI
+private lateinit var globalPathManager: PathManager
+private lateinit var globalSettingsManager: SettingsManager
+private lateinit var globalAccountManager: AccountManager
+private lateinit var globalBuildManager: BuildManager
+private lateinit var globalJavaManager: JavaManager
+private lateinit var globalJavaDownloader: JavaDownloader
+private lateinit var globalCacheManager: CacheManager
+private lateinit var globalModrinthApi: ModrinthApi
+
 @OptIn(ExperimentalResourceApi::class)
 fun main(args: Array<String>) {
     val isUiTest = args.contains("--uitest")
@@ -68,12 +77,31 @@ fun main(args: Array<String>) {
         }
     }
 
+    // Инициализация PathManager и проверка первого запуска
+    globalPathManager = PathManager(PathManager.getDefaultAppDataDirectory())
+    val isFirstRun = globalPathManager.isFirstRunRequired()
+
     runBlocking(Dispatchers.IO) {
-        val pathManager = PathManager(PathManager.getDefaultAppDataDirectory())
-        DatabaseManager.init(pathManager)
-        val settingsManager = SettingsManager(pathManager)
-        val settings = settingsManager.loadSettings()
+        if (isFirstRun) {
+            // Если это первый запуск, создаем директории и инициализируем БД
+            globalPathManager.createRequiredDirectories()
+            DatabaseManager.init(globalPathManager)
+        } else {
+            // Если не первый запуск, просто инициализируем БД
+            DatabaseManager.init(globalPathManager)
+        }
+
+        // Инициализация остальных менеджеров после того, как БД гарантированно подключена
+        globalSettingsManager = SettingsManager(globalPathManager)
+        val settings = globalSettingsManager.loadSettings()
         Locale.setDefault(Locale(settings.language))
+
+        globalBuildManager = BuildManager(globalPathManager)
+        globalAccountManager = AccountManager(globalPathManager)
+        globalJavaManager = JavaManager(globalPathManager)
+        globalJavaDownloader = JavaDownloader(globalPathManager, globalJavaManager)
+        globalCacheManager = CacheManager(globalPathManager)
+        globalModrinthApi = ModrinthApi(globalCacheManager)
     }
 
     // Создание и отображение сплеш-скрина с помощью Swing.
@@ -82,15 +110,12 @@ fun main(args: Array<String>) {
 
     // Запуск и проверка доступности демона MLGD.
     runBlocking {
-        val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
         SwingUtilities.invokeLater { statusLabel.text = "Starting daemon..." }
         runCatching {
-            MLGDClient.ensureDaemonRunning(pathManager.getLauncherDir())
+            MLGDClient.ensureDaemonRunning(globalPathManager)
         }.onFailure { e ->
+            println("Could not start or connect to MLGD daemon. The application will continue without it.")
             println(e.stackTraceToString())
-            splash?.isVisible = false
-            JOptionPane.showMessageDialog(null, "Could not start or connect to MLGD daemon.\n${e.message}", "Fatal Error", JOptionPane.ERROR_MESSAGE)
-            return@runBlocking
         }
     }
 
@@ -109,16 +134,6 @@ fun main(args: Array<String>) {
             painterResource(Res.drawable.MLicon)
         }
 
-        // Ленивая инициализация менеджеров.
-        val pathManager by lazy { PathManager(PathManager.getDefaultAppDataDirectory()) }
-        val settingsManager by lazy { SettingsManager(pathManager) }
-        val buildManager by lazy { BuildManager(pathManager) }
-        val accountManager by lazy { AccountManager(pathManager) }
-        val javaManager by lazy { JavaManager(pathManager) }
-        val javaDownloader by lazy { JavaDownloader(pathManager, javaManager) }
-        val cacheManager by lazy { CacheManager(pathManager) }
-        val modrinthApi by lazy { ModrinthApi(cacheManager) }
-
         // Эффект для скрытия сплеш-скрина, когда контент готов.
         LaunchedEffect(isContentReady) {
             if (isContentReady) {
@@ -132,16 +147,16 @@ fun main(args: Array<String>) {
             if (currentScreen is Screen.Splash) {
                 isContentReady = false
                 scope.launch(Dispatchers.IO) {
-                    if (pathManager.isFirstRunRequired()) {
+                    if (isFirstRun) {
                         withContext(Dispatchers.Main) {
                             currentScreen = Screen.FirstRunWizard
                         }
                     } else {
                         // Асинхронная загрузка всех необходимых данных.
                         SwingUtilities.invokeLater { statusLabel.text = "Loading UI..." }
-                        val settingsJob = async { settingsManager.loadSettings() }
-                        val buildsJob = async { buildManager.loadBuilds() }
-                        val accountsJob = async { accountManager.loadAccounts() }
+                        val settingsJob = async { globalSettingsManager.loadSettings() }
+                        val buildsJob = async { globalBuildManager.loadBuilds() }
+                        val accountsJob = async { globalAccountManager.loadAccounts() }
 
                         val loadedState = AppState(
                             settings = settingsJob.await(),
@@ -165,9 +180,8 @@ fun main(args: Array<String>) {
                 Window(
                     onCloseRequest = {
                         scope.launch {
-                            // Корректное завершение работы.
                             MLGDClient.shutdown()
-                            modrinthApi.close()
+                            globalModrinthApi.close()
                             exitApplication()
                         }
                     },
@@ -178,14 +192,14 @@ fun main(args: Array<String>) {
                 ) {
                     AnimatedAppTheme(wizardTheme) {
                         FirstRunWizard(
-                            accountManager = accountManager,
+                            accountManager = globalAccountManager, // Теперь globalAccountManager всегда инициализирован
                             initialTheme = wizardTheme,
                             onThemeChange = { wizardTheme = it },
                             onWizardComplete = { newSettings ->
                                 scope.launch(Dispatchers.IO) {
-                                    pathManager.createRequiredDirectories()
-                                    settingsManager.saveSettings(newSettings)
-                                    currentScreen = Screen.Splash
+                                    // Директории и БД уже инициализированы, просто сохраняем настройки
+                                    globalSettingsManager.saveSettings(newSettings)
+                                    currentScreen = Screen.Splash // Переходим на сплеш для загрузки основного приложения
                                 }
                             }
                         )
@@ -197,10 +211,9 @@ fun main(args: Array<String>) {
                 appState?.let { state ->
                     Window(
                         onCloseRequest = {
-                            // Корректное завершение работы.
                             scope.launch {
                                 MLGDClient.shutdown()
-                                modrinthApi.close()
+                                globalModrinthApi.close()
                                 exitApplication()
                             }
                         },
@@ -213,14 +226,14 @@ fun main(args: Array<String>) {
                             appState = state,
                             onSettingsChange = { newSettings ->
                                 appState = state.copy(settings = newSettings)
-                                scope.launch { settingsManager.saveSettings(newSettings) }
+                                scope.launch { globalSettingsManager.saveSettings(newSettings) }
                             },
-                            buildManager = buildManager,
-                            javaManager = javaManager,
-                            accountManager = accountManager,
-                            javaDownloader = javaDownloader,
-                            pathManager = pathManager,
-                            cacheManager = cacheManager
+                            buildManager = globalBuildManager,
+                            javaManager = globalJavaManager,
+                            accountManager = globalAccountManager,
+                            javaDownloader = globalJavaDownloader,
+                            pathManager = globalPathManager,
+                            cacheManager = globalCacheManager
                         )
                         SideEffect {
                             if (!isContentReady) {
