@@ -31,22 +31,27 @@ jobs:
         if: ${{ matrix.os == 'windows-latest' }}
         shell: powershell
         run: |
-          # Скачиваем Oracle GraalVM 21 прямо в рабочую папку (Диск D:)
+          # 1. Скачиваем Oracle GraalVM 21
+          Write-Host "Downloading GraalVM..."
           Invoke-WebRequest -Uri "https://download.oracle.com/graalvm/21/latest/graalvm-jdk-21_windows-x64_bin.zip" -OutFile "graalvm.zip"
           
-          # Распаковываем
-          Expand-Archive -Path "graalvm.zip" -DestinationPath .
+          # 2. Распаковываем
+          Write-Host "Extracting..."
+          Expand-Archive -Path "graalvm.zip" -DestinationPath . -Force
           
-          # Находим имя папки (оно может меняться в зависимости от минорной версии)
-          $graalPath = Get-ChildItem -Path . -Filter "graalvm-jdk-*" | Select-Object -ExpandProperty FullName
+          # 3. Находим путь к папке (чтобы не гадать имя папки)
+          $graalFolder = Get-ChildItem -Path . -Directory -Filter "graalvm-jdk-*" | Select-Object -First 1 -ExpandProperty FullName
+          Write-Host "GraalVM detected at: $graalFolder"
           
-          # Устанавливаем переменные окружения
-          echo "JAVA_HOME=$graalPath" >> $env:GITHUB_ENV
-          echo "GRAALVM_HOME=$graalPath" >> $env:GITHUB_ENV
-          echo "$graalPath\bin" >> $env:GITHUB_PATH
+          # 4. Настраиваем переменные окружения для СЛЕДУЮЩИХ шагов
+          # Это запишет переменные в файл окружения GitHub Actions
+          "JAVA_HOME=$graalFolder" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "GRAALVM_HOME=$graalFolder" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$graalFolder\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
           
-          # Проверка версии
-          $graalPath\bin\java -version
+          # 5. Проверяем версию (ИСПРАВЛЕННЫЙ СИНТАКСИС)
+          # Используем оператор '&' для запуска команды из переменной
+          & "$graalFolder\bin\java.exe" -version
 
       - name: Grant execute permission for gradlew
         if: ${{ matrix.os == 'ubuntu-latest' }}
