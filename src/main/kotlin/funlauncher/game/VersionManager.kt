@@ -15,8 +15,12 @@ import io.ktor.client.request.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.w3c.dom.Element
+import java.io.ByteArrayInputStream
 import java.nio.file.Path
+import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.io.path.exists
+import kotlin.io.path.readBytes
 import kotlin.io.path.readText
 
 @Serializable
@@ -53,11 +57,15 @@ class VersionManager(pathManager: PathManager) {
     }
 
     suspend fun getFabricGameVersions(): List<FabricGameVersion> {
-        val url = "https://meta.fabricmc.net/v2/versions/game"
+        val cacheFile = cacheDir.resolve("fabric_game_versions.json")
+        if (!cacheFile.exists()) {
+            log("Кэш версий игр Fabric не найден.")
+            return emptyList()
+        }
         try {
-            return client.get(url).body<List<FabricGameVersion>>()
+            return json.decodeFromString(cacheFile.readText())
         } catch (e: Exception) {
-            log("Ошибка при получении поддерживаемых Fabric версий игр: ${e.message}")
+            log("Ошибка чтения кэша версий игр Fabric: ${e.message}")
             return emptyList()
         }
     }
@@ -113,11 +121,15 @@ class VersionManager(pathManager: PathManager) {
     }
 
     suspend fun getQuiltGameVersions(): List<QuiltGameVersion> {
-        val url = "https://meta.quiltmc.org/v3/versions/game"
+        val cacheFile = cacheDir.resolve("quilt_game_versions.json")
+        if (!cacheFile.exists()) {
+            log("Кэш версий игр Quilt не найден.")
+            return emptyList()
+        }
         try {
-            return client.get(url).body<List<QuiltGameVersion>>()
+            return json.decodeFromString(cacheFile.readText())
         } catch (e: Exception) {
-            log("Ошибка при получении поддерживаемых Quilt версий игр: ${e.message}")
+            log("Ошибка чтения кэша версий игр Quilt: ${e.message}")
             return emptyList()
         }
     }
@@ -134,14 +146,21 @@ class VersionManager(pathManager: PathManager) {
     }
 
     suspend fun getNeoForgeVersions(): List<NeoForgeVersion> {
-        val cacheFile = cacheDir.resolve("neoforge_versions.json")
+        val cacheFile = cacheDir.resolve("neoforge_versions.xml")
         if (!cacheFile.exists()) {
             log("Кэш версий NeoForge не найден.")
             return emptyList()
         }
         try {
-            val response = json.decodeFromString<NeoForgeApiResponse>(cacheFile.readText())
-            return response.versions.mapNotNull { neoVersion ->
+            val factory = DocumentBuilderFactory.newInstance()
+            val builder = factory.newDocumentBuilder()
+            val doc = builder.parse(ByteArrayInputStream(cacheFile.readBytes()))
+            val versions = doc.getElementsByTagName("version")
+            val versionList = mutableListOf<String>()
+            for (i in 0 until versions.length) {
+                versionList.add(versions.item(i).textContent)
+            }
+            return versionList.mapNotNull { neoVersion ->
                 getMcVersionFromNeoForgeVersion(neoVersion)?.let { mcVersion ->
                     NeoForgeVersion(mcVersion, neoVersion)
                 }

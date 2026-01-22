@@ -541,8 +541,7 @@ private fun MainSettingsTab(
     var quiltLoaderVersions by remember { mutableStateOf<List<QuiltVersion>>(emptyList()) }
     var neoForgeVersions by remember { mutableStateOf<List<NeoForgeVersion>>(emptyList()) }
     var applicableNeoForgeVersions by remember { mutableStateOf<List<NeoForgeVersion>>(emptyList()) }
-    var isLoadingMcVersions by remember { mutableStateOf(false) }
-    var isLoadingLoaderVersions by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
 
     val totalSystemMemory = remember { (ManagementFactory.getOperatingSystemMXBean() as com.sun.management.OperatingSystemMXBean).totalMemorySize / (1024 * 1024) }
 
@@ -557,27 +556,10 @@ private fun MainSettingsTab(
         }
     }
 
-    fun refreshAllVersions() {
-        scope.launch {
-            isLoadingMcVersions = true
-            val mc = async { versionManager.getMinecraftVersions() }
-            val fabric = async { versionManager.getFabricGameVersions() }
-            val forge = async { versionManager.getForgeVersions() }
-            val quilt = async { versionManager.getQuiltGameVersions() }
-            val neoforge = async { versionManager.getNeoForgeVersions() }
-            allMcVersions = mc.await()
-            fabricGameVersions = fabric.await()
-            forgeVersions = forge.await()
-            quiltGameVersions = quilt.await()
-            neoForgeVersions = neoforge.await()
-            isLoadingMcVersions = false
-        }
-    }
-
     fun refreshLoaderVersions() {
         if (selectedMcVersion.isBlank()) return
         scope.launch {
-            isLoadingLoaderVersions = true
+            isLoading = true
             when (selectedBuildType) {
                 BuildType.FABRIC -> {
                     fabricLoaderVersions = versionManager.getFabricLoaderVersions(selectedMcVersion)
@@ -607,13 +589,25 @@ private fun MainSettingsTab(
                 }
                 else -> {}
             }
-            isLoadingLoaderVersions = false
+            isLoading = false
         }
     }
 
     LaunchedEffect(Unit) {
+        isLoading = true
         javaInstallations = javaManager.findJavaInstallations().let { it.launcher + it.system }
-        refreshAllVersions()
+        val mc = async { versionManager.getMinecraftVersions() }
+        val fabric = async { versionManager.getFabricGameVersions() }
+        val forge = async { versionManager.getForgeVersions() }
+        val quilt = async { versionManager.getQuiltGameVersions() }
+        val neoforge = async { versionManager.getNeoForgeVersions() }
+        allMcVersions = mc.await()
+        fabricGameVersions = fabric.await()
+        forgeVersions = forge.await()
+        quiltGameVersions = quilt.await()
+        neoForgeVersions = neoforge.await()
+        refreshLoaderVersions() // Initial loader version refresh
+        isLoading = false
     }
 
     LaunchedEffect(selectedMcVersion, selectedBuildType) {
@@ -627,52 +621,58 @@ private fun MainSettingsTab(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ImageSelectionGroup(
-            imagePath = imagePath,
-            onImagePathChange = { selectedFile ->
-                scope.launch(Dispatchers.IO) {
-                    val coversDir = buildManager.getLauncherDataPath().resolve("covers")
-                    Files.createDirectories(coversDir)
-                    val newPath = coversDir.resolve(selectedFile.name)
-                    Files.copy(selectedFile.toPath(), newPath, StandardCopyOption.REPLACE_EXISTING)
-                    onImagePathChange(newPath.toString())
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+    } else {
+        Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            ImageSelectionGroup(
+                imagePath = imagePath,
+                onImagePathChange = { selectedFile ->
+                    scope.launch(Dispatchers.IO) {
+                        val coversDir = buildManager.getLauncherDataPath().resolve("covers")
+                        Files.createDirectories(coversDir)
+                        val newPath = coversDir.resolve(selectedFile.name)
+                        Files.copy(selectedFile.toPath(), newPath, StandardCopyOption.REPLACE_EXISTING)
+                        onImagePathChange(newPath.toString())
+                    }
+                }
+            )
+            OutlinedTextField(value = buildName, onValueChange = onBuildNameChange, label = { Text("Название установки") }, modifier = Modifier.fillMaxWidth())
+            VersionSelectionGroup(
+                mcVersions = displayedMcVersions,
+                fabricVersions = fabricLoaderVersions,
+                forgeVersions = applicableForgeVersions,
+                quiltVersions = quiltLoaderVersions,
+                neoForgeVersions = applicableNeoForgeVersions,
+                selectedMcVersion = selectedMcVersion,
+                onMcVersionSelected = onSelectedMcVersionChange,
+                selectedLoaderVersion = selectedLoaderVersion,
+                onLoaderVersionSelected = onSelectedLoaderVersionChange,
+                buildType = selectedBuildType,
+                onBuildTypeSelected = onSelectedBuildTypeChange,
+                isLoadingMc = isLoading,
+                isLoadingLoader = isLoading,
+                onRefreshMc = { /* No manual refresh needed here anymore */ },
+                onRefreshLoader = { refreshLoaderVersions() }
+            )
+            JavaSelectionGroup(javaInstallations, globalSettings.javaPath, selectedJavaPath, onSelectedJavaPathChange)
+            SettingGroup("Выделение ОЗУ", useGlobalRam, { onUseGlobalRamChange(it); if (it) onMaxRamChange(globalSettings.maxRamMb) }) {
+                if (useGlobalRam) {
+                    Text("Используется: ${globalSettings.maxRamMb} МБ (глобальная настройка)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp))
+                } else {
+                    RamSelector(maxRam, totalSystemMemory.toInt(), onMaxRamChange)
                 }
             }
-        )
-        OutlinedTextField(value = buildName, onValueChange = onBuildNameChange, label = { Text("Название установки") }, modifier = Modifier.fillMaxWidth())
-        VersionSelectionGroup(
-            mcVersions = displayedMcVersions,
-            fabricVersions = fabricLoaderVersions,
-            forgeVersions = applicableForgeVersions,
-            quiltVersions = quiltLoaderVersions,
-            neoForgeVersions = applicableNeoForgeVersions,
-            selectedMcVersion = selectedMcVersion,
-            onMcVersionSelected = onSelectedMcVersionChange,
-            selectedLoaderVersion = selectedLoaderVersion,
-            onLoaderVersionSelected = onSelectedLoaderVersionChange,
-            buildType = selectedBuildType,
-            onBuildTypeSelected = onSelectedBuildTypeChange,
-            isLoadingMc = isLoadingMcVersions,
-            isLoadingLoader = isLoadingLoaderVersions,
-            onRefreshMc = { refreshAllVersions() },
-            onRefreshLoader = { refreshLoaderVersions() }
-        )
-        JavaSelectionGroup(javaInstallations, globalSettings.javaPath, selectedJavaPath, onSelectedJavaPathChange)
-        SettingGroup("Выделение ОЗУ", useGlobalRam, { onUseGlobalRamChange(it); if (it) onMaxRamChange(globalSettings.maxRamMb) }) {
-            if (useGlobalRam) {
-                Text("Используется: ${globalSettings.maxRamMb} МБ (глобальная настройка)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 8.dp))
-            } else {
-                RamSelector(maxRam, totalSystemMemory.toInt(), onMaxRamChange)
+            SettingGroup("Аргументы Java", useGlobalJavaArgs, { onUseGlobalJavaArgsChange(it); if (it) onJavaArgsChange(globalSettings.javaArgs) }) {
+                OutlinedTextField(javaArgs, onJavaArgsChange, Modifier.fillMaxWidth().height(100.dp), !useGlobalJavaArgs, label = { Text("Аргументы Java") })
             }
+            SettingGroup("Переменные среды", useGlobalEnvVars, { onUseGlobalEnvVarsChange(it); if (it) onEnvVarsChange(globalSettings.envVars) }) {
+                OutlinedTextField(envVars, onEnvVarsChange, Modifier.fillMaxWidth().height(100.dp), !useGlobalEnvVars, label = { Text("Переменные среды (VAR=VAL)") })
+            }
+            Spacer(Modifier.height(0.dp))
         }
-        SettingGroup("Аргументы Java", useGlobalJavaArgs, { onUseGlobalJavaArgsChange(it); if (it) onJavaArgsChange(globalSettings.javaArgs) }) {
-            OutlinedTextField(javaArgs, onJavaArgsChange, Modifier.fillMaxWidth().height(100.dp), !useGlobalJavaArgs, label = { Text("Аргументы Java") })
-        }
-        SettingGroup("Переменные среды", useGlobalEnvVars, { onUseGlobalEnvVarsChange(it); if (it) onEnvVarsChange(globalSettings.envVars) }) {
-            OutlinedTextField(envVars, onEnvVarsChange, Modifier.fillMaxWidth().height(100.dp), !useGlobalEnvVars, label = { Text("Переменные среды (VAR=VAL)") })
-        }
-        Spacer(Modifier.height(0.dp))
     }
 }
 

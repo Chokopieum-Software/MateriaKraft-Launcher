@@ -43,6 +43,57 @@ class VersionMetadataFetcher(private val buildManager: BuildManager, private val
 
     private fun log(message: String) = println("[VersionFetcher] $message")
 
+    suspend fun prefetchVersionMetadata(onStatusUpdate: (String) -> Unit = {}) {
+        log("Starting version metadata prefetch...")
+        cacheDir.createDirectories()
+
+        fetchAndCache(
+            "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+            cacheDir.resolve("vanilla_versions.json"),
+            "Vanilla",
+            onStatusUpdate
+        )
+        fetchAndCache(
+            "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json",
+            cacheDir.resolve("forge_versions.json"),
+            "Forge",
+            onStatusUpdate
+        )
+        fetchAndCache(
+            "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml",
+            cacheDir.resolve("neoforge_versions.xml"),
+            "NeoForge",
+            onStatusUpdate
+        )
+        fetchAndCache(
+            "https://meta.fabricmc.net/v2/versions/game",
+            cacheDir.resolve("fabric_game_versions.json"),
+            "Fabric Game Versions",
+            onStatusUpdate
+        )
+        fetchAndCache(
+            "https://meta.quiltmc.org/v3/versions/game",
+            cacheDir.resolve("quilt_game_versions.json"),
+            "Quilt Game Versions",
+            onStatusUpdate
+        )
+        onStatusUpdate("Prefetch finished.")
+        log("Version metadata prefetch finished.")
+    }
+
+    private suspend fun fetchAndCache(url: String, file: Path, name: String, onStatusUpdate: (String) -> Unit) {
+        try {
+            onStatusUpdate("Fetching $name metadata...")
+            log("Fetching $name metadata from $url...")
+            val data = client.get(url).body<ByteArray>()
+            file.writeBytes(data)
+            log("Successfully cached $name metadata to ${file.pathString}")
+        } catch (e: Exception) {
+            onStatusUpdate("Failed to fetch $name metadata.")
+            log("Failed to fetch or cache $name metadata: ${e.message}")
+        }
+    }
+
     suspend fun getVanillaVersions(): List<String> {
         val manifest = client.get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json").body<VersionManifest>()
         return manifest.versions.map { it.id }

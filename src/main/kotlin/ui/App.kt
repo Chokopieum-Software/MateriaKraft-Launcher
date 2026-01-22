@@ -22,6 +22,7 @@ import funlauncher.auth.Account
 import funlauncher.auth.AccountManager
 import funlauncher.game.MLGDClient
 import funlauncher.game.MinecraftInstaller
+import funlauncher.game.VersionMetadataFetcher
 import funlauncher.managers.BuildManager
 import funlauncher.managers.CacheManager
 import funlauncher.managers.JavaManager
@@ -52,6 +53,7 @@ enum class AppTab { Home, Modifications, Settings }
  * @param javaDownloader Загрузчик для скачивания версий Java.
  * @param pathManager Менеджер путей к файлам приложения.
  * @param cacheManager Менеджер кэша.
+ * @param versionMetadataFetcher Фетчер метаданных версий.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -63,7 +65,8 @@ fun App(
     accountManager: AccountManager,
     javaDownloader: JavaDownloader,
     pathManager: PathManager,
-    cacheManager: CacheManager
+    cacheManager: CacheManager,
+    versionMetadataFetcher: VersionMetadataFetcher
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -288,7 +291,9 @@ fun App(
                                 onSave = onSettingsChange,
                                 onOpenJavaManager = { showJavaManagerWindow = true },
                                 accountManager = accountManager,
-                                coroutineScope = scope
+                                coroutineScope = scope,
+                                versionMetadataFetcher = versionMetadataFetcher,
+                                snackbarHostState = snackbarHostState
                             )
                         }
                     }

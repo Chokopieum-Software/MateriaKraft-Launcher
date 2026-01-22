@@ -16,6 +16,7 @@ import funlauncher.*
 import funlauncher.auth.AccountManager
 import funlauncher.database.DatabaseManager
 import funlauncher.game.MLGDClient
+import funlauncher.game.VersionMetadataFetcher
 import funlauncher.managers.BuildManager
 import funlauncher.managers.CacheManager
 import funlauncher.managers.JavaManager
@@ -52,6 +53,7 @@ private lateinit var globalJavaManager: JavaManager
 private lateinit var globalJavaDownloader: JavaDownloader
 private lateinit var globalCacheManager: CacheManager
 private lateinit var globalModrinthApi: ModrinthApi
+private lateinit var globalVersionMetadataFetcher: VersionMetadataFetcher
 
 @OptIn(ExperimentalResourceApi::class)
 fun main(args: Array<String>) {
@@ -102,11 +104,19 @@ fun main(args: Array<String>) {
         globalJavaDownloader = JavaDownloader(globalPathManager, globalJavaManager)
         globalCacheManager = CacheManager(globalPathManager)
         globalModrinthApi = ModrinthApi(globalCacheManager)
+        globalVersionMetadataFetcher = VersionMetadataFetcher(globalBuildManager, globalPathManager)
     }
 
     // Создание и отображение сплеш-скрина с помощью Swing.
     val statusLabel = JLabel("Initializing...")
     val splash = createAndShowSplashScreen(statusLabel)
+
+    // Предварительное кэширование метаданных версий
+    runBlocking(Dispatchers.IO) {
+        globalVersionMetadataFetcher.prefetchVersionMetadata { status ->
+            SwingUtilities.invokeLater { statusLabel.text = status }
+        }
+    }
 
     // Запуск и проверка доступности демона MLGD.
     runBlocking {
@@ -233,7 +243,8 @@ fun main(args: Array<String>) {
                             accountManager = globalAccountManager,
                             javaDownloader = globalJavaDownloader,
                             pathManager = globalPathManager,
-                            cacheManager = globalCacheManager
+                            cacheManager = globalCacheManager,
+                            versionMetadataFetcher = globalVersionMetadataFetcher
                         )
                         SideEffect {
                             if (!isContentReady) {

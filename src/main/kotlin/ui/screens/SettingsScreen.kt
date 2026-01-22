@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,8 +32,10 @@ import funlauncher.AppSettings
 import funlauncher.NavPanelPosition
 import funlauncher.Theme
 import funlauncher.auth.AccountManager
+import funlauncher.game.VersionMetadataFetcher
 import funlauncher.openUri
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import ui.dialogs.LaunchSettingsDialog
 import ui.viewmodel.AccountViewModel
 import java.io.File
@@ -91,6 +94,7 @@ object AppInfo {
 private enum class SettingsSection(val title: String, val icon: ImageVector) {
     Appearance("Внешний вид", Icons.Default.Palette),
     Launch("Запуск игры", Icons.Default.PlayArrow),
+    Cache("Кэш", Icons.Default.Refresh), // Новая секция для кэша
     About("О программе", Icons.Default.Info)
 }
 
@@ -101,7 +105,9 @@ fun SettingsTab(
     onSave: (AppSettings) -> Unit,
     onOpenJavaManager: () -> Unit,
     accountManager: AccountManager,
-    coroutineScope: CoroutineScope
+    coroutineScope: CoroutineScope,
+    versionMetadataFetcher: VersionMetadataFetcher, // Добавлен новый параметр
+    snackbarHostState: SnackbarHostState // Добавлен новый параметр
 ) {
     var currentSection by remember { mutableStateOf(SettingsSection.Appearance) }
     val accountViewModel = remember { AccountViewModel(accountManager, coroutineScope) }
@@ -134,6 +140,7 @@ fun SettingsTab(
             when (currentSection) {
                 SettingsSection.Appearance -> AppearanceSettings(currentSettings, onSave)
                 SettingsSection.Launch -> LaunchSettings(currentSettings, onSave, onOpenJavaManager, accountViewModel)
+                SettingsSection.Cache -> CacheSettings(versionMetadataFetcher, snackbarHostState, coroutineScope) // Новая секция
                 SettingsSection.About -> AboutScreen()
             }
         }
@@ -322,6 +329,52 @@ private fun LaunchSettings(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun CacheSettings(
+    versionMetadataFetcher: VersionMetadataFetcher,
+    snackbarHostState: SnackbarHostState,
+    coroutineScope: CoroutineScope
+) {
+    var isUpdatingCache by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Управление кэшем", style = MaterialTheme.typography.titleMedium)
+                Text("Обновите кэши версий игры и загрузчиков, чтобы получить актуальную информацию.")
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            isUpdatingCache = true
+                            snackbarHostState.showSnackbar("Обновление кэшей версий...", duration = SnackbarDuration.Indefinite)
+                            versionMetadataFetcher.prefetchVersionMetadata { status ->
+                                coroutineScope.launch { snackbarHostState.showSnackbar(status, duration = SnackbarDuration.Short) }
+                            }
+                            snackbarHostState.showSnackbar("Кэши версий обновлены!", duration = SnackbarDuration.Short)
+                            isUpdatingCache = false
+                        }
+                    },
+                    enabled = !isUpdatingCache,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (isUpdatingCache) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Обновление...")
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = "Обновить кэши")
+                        Spacer(Modifier.width(8.dp))
+                        Text("Обновить кэши версий")
+                    }
+                }
+            }
+        }
     }
 }
 
