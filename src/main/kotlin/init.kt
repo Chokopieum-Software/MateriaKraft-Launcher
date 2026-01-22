@@ -111,10 +111,14 @@ fun main(args: Array<String>) {
     val statusLabel = JLabel("Initializing...")
     val splash = createAndShowSplashScreen(statusLabel)
 
-    // Предварительное кэширование метаданных версий
-    runBlocking(Dispatchers.IO) {
-        globalVersionMetadataFetcher.prefetchVersionMetadata { status ->
-            SwingUtilities.invokeLater { statusLabel.text = status }
+    // Предварительное кэширование метаданных версий в фоновом режиме
+    CoroutineScope(Dispatchers.IO).launch {
+        runCatching {
+            globalVersionMetadataFetcher.prefetchVersionMetadata { status ->
+                SwingUtilities.invokeLater { statusLabel.text = status }
+            }
+        }.onFailure {
+            println("Warning: Failed to prefetch version metadata in background: ${it.stackTraceToString()}")
         }
     }
 
@@ -251,7 +255,7 @@ fun main(args: Array<String>) {
                                 isContentReady = true
                                 if (isUiTest) {
                                     println("MATERIAKRAFT_LAUNCHER_UI_TEST_SUCCESS")
-                                }
+                                 }
                             }
                         }
                     }
