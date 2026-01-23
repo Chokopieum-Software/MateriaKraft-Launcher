@@ -51,9 +51,7 @@ enum class FilterState {
 
 @Composable
 fun ModificationCard(hit: Hit, onClick: () -> Unit) {
-    val imageBitmap by produceState<ImageBitmap?>(null, hit.iconUrl) {
-        value = ImageLoader.loadImage(hit.iconUrl)
-    }
+    val imageBitmap = ImageLoader.rememberImageBitmapFromUrl(hit.iconUrl)
 
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -68,7 +66,7 @@ fun ModificationCard(hit: Hit, onClick: () -> Unit) {
                     .size(64.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center
             ) {
                 imageBitmap?.let {
                     Image(
@@ -325,10 +323,10 @@ fun ModificationsScreen(
 
         // Исправленный список серверных ядер, которые нужно исключать из модов
         val serverCoreLoadersToExclude = setOf("paper", "spigot", "purpur")
-        
+
         filteredLoaders.addAll(allLoaders.filter { loader ->
             loader.supported_project_types.contains(selectedType.projectType) &&
-            !(selectedType == ModificationType.MODS && serverCoreLoadersToExclude.contains(loader.name.lowercase()))
+                    !(selectedType == ModificationType.MODS && serverCoreLoadersToExclude.contains(loader.name.lowercase()))
         })
     }
 
@@ -338,10 +336,10 @@ fun ModificationsScreen(
             // Более точная фильтрация релизных версий
             allVanillaVersions.filter { version ->
                 !version.contains("snapshot", ignoreCase = true) &&
-                !version.contains("pre-release", ignoreCase = true) &&
-                !version.contains("rc", ignoreCase = true) &&
-                !version.contains("alpha", ignoreCase = true) &&
-                !version.contains("beta", ignoreCase = true)
+                        !version.contains("pre-release", ignoreCase = true) &&
+                        !version.contains("rc", ignoreCase = true) &&
+                        !version.contains("alpha", ignoreCase = true) &&
+                        !version.contains("beta", ignoreCase = true)
             }
         } else {
             allVanillaVersions
@@ -528,9 +526,7 @@ fun ModificationsScreen(
                                         shape = RoundedCornerShape(8.dp),
                                         tonalElevation = 2.dp
                                     ) {
-                                        val categoryIcon by produceState<ImageBitmap?>(null, category.icon) {
-                                            value = ImageLoader.loadImage(category.icon)
-                                        }
+                                        val categoryIcon = ImageLoader.rememberImageBitmapFromUrl(category.icon)
                                         Row(
                                             modifier = Modifier.fillMaxWidth().clickable {
                                                 val currentState = selectedCategories[category.name]
@@ -613,9 +609,7 @@ fun ModificationsScreen(
                                         shape = RoundedCornerShape(8.dp),
                                         tonalElevation = 2.dp
                                     ) {
-                                        val loaderIcon by produceState<ImageBitmap?>(null, loader.icon) {
-                                            value = ImageLoader.loadImage(loader.icon)
-                                        }
+                                        val loaderIcon = ImageLoader.rememberImageBitmapFromUrl(loader.icon)
                                         Row(
                                             modifier = Modifier.fillMaxWidth().clickable {
                                                 val currentState = selectedLoaders[loader.name]
@@ -762,6 +756,7 @@ fun ModificationsScreen(
                 )
             }
 
+            // NavigationRail (левая панель)
             AnimatedVisibility(
                 visible = navPanelPosition == NavPanelPosition.Left,
                 enter = slideInHorizontally(initialOffsetX = { offset -> -offset }),
@@ -796,6 +791,7 @@ fun ModificationsScreen(
                 }
             }
 
+            // NavigationBar (нижняя панель)
             AnimatedVisibility(
                 visible = navPanelPosition == NavPanelPosition.Bottom,
                 enter = slideInVertically(initialOffsetY = { offset -> offset }),
@@ -811,22 +807,25 @@ fun ModificationsScreen(
                         .clip(RoundedCornerShape(16.dp)),
                     containerColor = MaterialTheme.colorScheme.surface
                 ) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(Res.string.back))
-                        }
-                        ModificationType.entries.forEach { type ->
-                            NavigationRailItem(
-                                selected = selectedType == type,
-                                onClick = { selectedType = type },
-                                icon = { Icon(type.icon, contentDescription = type.displayName) },
-                                label = { Text(type.displayName) }
-                            )
-                        }
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = onBack,
+                        icon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(Res.string.back)) },
+                        label = { Text(stringResource(Res.string.back)) }
+                    )
+                    ModificationType.entries.forEach { type ->
+                        NavigationBarItem(
+                            selected = selectedType == type,
+                            onClick = { selectedType = type },
+                            icon = { Icon(type.icon, contentDescription = type.displayName) },
+                            label = { Text(type.displayName) }
+                        )
                     }
                 }
             }
         }
     }
+} // This brace was missing
 
 enum class ModificationType(
     val displayName: String,

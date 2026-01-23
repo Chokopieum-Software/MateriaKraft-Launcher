@@ -32,7 +32,7 @@ class AppViewModel(
     val versionMetadataFetcher: VersionMetadataFetcher,
     private val onSettingsChange: (AppSettings) -> Unit
 ) {
-    private val viewModelScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    val viewModelScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     // --- UI State ---
     var currentTab by mutableStateOf(AppTab.Home)

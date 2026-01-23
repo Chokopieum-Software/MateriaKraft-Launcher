@@ -35,94 +35,38 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import funlauncher.BuildType
 import funlauncher.MinecraftBuild
-import funlauncher.auth.Account
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import ui.viewmodel.HomeViewModel
 import ui.widgets.AvatarImage
-import java.io.File
+import ui.widgets.ImageLoader
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
-    builds: List<MinecraftBuild>,
-    runningBuild: MinecraftBuild?,
-    onLaunchClick: (MinecraftBuild) -> Unit,
-    onOpenFolderClick: (MinecraftBuild) -> Unit,
-    onAddBuildClick: () -> Unit,
-    isLaunchingBuildId: String?,
-    onDeleteBuildClick: (MinecraftBuild) -> Unit,
-    onSettingsBuildClick: (MinecraftBuild) -> Unit,
-    currentAccount: Account?,
-    onOpenAccountManager: () -> Unit,
-    buildsPendingDeletion: Set<String>
+    viewModel: HomeViewModel
 ) {
-    var searchQuery by remember { mutableStateOf("") }
-    val filteredBuilds = builds.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    val filteredBuilds by rememberUpdatedState(viewModel.filteredBuilds)
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = { Text("Поиск...") },
-                            modifier = Modifier.width(350.dp).height(50.dp),
-                            singleLine = true,
-                            shape = RoundedCornerShape(50),
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Поиск") },
-                            colors = TextFieldDefaults.colors(
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent
-                            )
-                        )
-                        Spacer(Modifier.width(16.dp))
-                        FilledTonalButton(onClick = onAddBuildClick) {
-                            Text("Создать")
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onOpenAccountManager) {
-                        AvatarImage(
-                            account = currentAccount,
-                            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            HomeTopAppBar(
+                searchQuery = viewModel.searchQuery,
+                onSearchQueryChange = viewModel::onSearchQueryChanged,
+                onAddBuildClick = viewModel::onAddBuildClick,
+                onOpenAccountManager = viewModel::onOpenAccountManager,
+                viewModel = viewModel
             )
         },
         containerColor = Color.Transparent
     ) { paddingValues ->
-        if (builds.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(paddingValues),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "Сборки не найдены.\nНажмите \"Создать\", чтобы добавить новую.",
-                    style = MaterialTheme.typography.headlineSmall,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
+        if (viewModel.builds.isEmpty()) {
+            EmptyState(Modifier.fillMaxSize().padding(paddingValues))
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 220.dp),
@@ -133,20 +77,20 @@ fun HomeScreen(
             ) {
                 itemsIndexed(filteredBuilds, key = { _, build -> build.name }) { index, build ->
                     AnimatedVisibility(
-                        visible = build.name !in buildsPendingDeletion,
+                        visible = build.name !in viewModel.buildsPendingDeletion,
                         exit = shrinkVertically(animationSpec = tween(durationMillis = 300)) + fadeOut(animationSpec = tween(durationMillis = 250))
                     ) {
-                        BuildCard(
+                        AnimatedBuildCard(
                             build = build,
-                            isRunning = build == runningBuild,
-                            isPreparing = build.name == isLaunchingBuildId,
-                            onLaunchClick = { onLaunchClick(build) },
-                            onOpenFolderClick = { onOpenFolderClick(build) },
-                            onDeleteClick = { onDeleteBuildClick(build) },
-                            onSettingsClick = { onSettingsBuildClick(build) },
+                            isRunning = build == viewModel.runningBuild,
+                            isPreparing = build.name == viewModel.isLaunchingBuildId,
+                            onLaunchClick = { viewModel.onLaunchClick(build) },
+                            onOpenFolderClick = { viewModel.onOpenFolderClick(build) },
+                            onDeleteClick = { viewModel.onDeleteBuildClick(build) },
+                            onSettingsClick = { viewModel.onSettingsBuildClick(build) },
                             index = index,
                             modifier = Modifier.animateItem(
-                                placementSpec = spring( // Используем именованный аргумент placement
+                                placementSpec = spring(
                                     dampingRatio = Spring.DampingRatioLowBouncy,
                                     stiffness = Spring.StiffnessMedium
                                 )
@@ -158,6 +102,72 @@ fun HomeScreen(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomeTopAppBar(
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onAddBuildClick: () -> Unit,
+    onOpenAccountManager: () -> Unit,
+    viewModel: HomeViewModel
+) {
+    TopAppBar(
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    placeholder = { Text("Поиск...") },
+                    modifier = Modifier.width(350.dp).height(50.dp),
+                    singleLine = true,
+                    shape = RoundedCornerShape(50),
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Поиск") },
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent
+                    )
+                )
+                Spacer(Modifier.width(16.dp))
+                FilledTonalButton(onClick = onAddBuildClick) {
+                    Text("Создать")
+                }
+            }
+        },
+        actions = {
+            IconButton(onClick = onOpenAccountManager) {
+                AvatarImage(
+                    account = viewModel.currentAccount,
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    )
+}
+
+@Composable
+private fun EmptyState(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            "Сборки не найдены.\nНажмите \"Создать\", чтобы добавить новую.",
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+        )
+    }
+}
+
 
 private fun formatBuildVersion(build: MinecraftBuild): String {
     return when (build.type) {
@@ -183,7 +193,7 @@ private fun formatBuildVersion(build: MinecraftBuild): String {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun BuildCard(
+private fun AnimatedBuildCard(
     build: MinecraftBuild,
     isRunning: Boolean,
     isPreparing: Boolean,
@@ -194,10 +204,6 @@ private fun BuildCard(
     index: Int,
     modifier: Modifier = Modifier
 ) {
-    var showMenu by remember { mutableStateOf(false) }
-    val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
-
     val animatedScale = remember { Animatable(0.8f) }
     val animatedAlpha = remember { Animatable(0f) }
 
@@ -224,37 +230,43 @@ private fun BuildCard(
         }
     }
 
-    var imageBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
-
-    LaunchedEffect(build.imagePath) {
-        if (build.imagePath != null) {
-            withContext(Dispatchers.IO) {
-                val file = File(build.imagePath)
-                if (file.exists()) {
-                    try {
-                        file.inputStream().use { stream ->
-                            imageBitmap = loadImageBitmap(stream)
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        imageBitmap = null
-                    }
-                } else {
-                    imageBitmap = null
-                }
-            }
-        } else {
-            imageBitmap = null
-        }
-    }
-
-    Card(
+    BuildCard(
+        build = build,
+        isRunning = isRunning,
+        isPreparing = isPreparing,
+        onLaunchClick = onLaunchClick,
+        onOpenFolderClick = onOpenFolderClick,
+        onDeleteClick = onDeleteClick,
+        onSettingsClick = onSettingsClick,
         modifier = modifier
             .graphicsLayer {
                 scaleX = animatedScale.value
                 scaleY = animatedScale.value
                 alpha = animatedAlpha.value
             }
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BuildCard(
+    build: MinecraftBuild,
+    isRunning: Boolean,
+    isPreparing: Boolean,
+    onLaunchClick: () -> Unit,
+    onOpenFolderClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    val imageBitmap = ImageLoader.rememberImageBitmap(build.imagePath)
+
+    Card(
+        modifier = modifier
             .hoverable(interactionSource)
             .fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -265,7 +277,7 @@ private fun BuildCard(
             Box(modifier = Modifier.fillMaxWidth().aspectRatio(16 / 9f)) {
                 if (imageBitmap != null) {
                     Image(
-                        bitmap = imageBitmap!!,
+                        bitmap = imageBitmap,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

@@ -17,7 +17,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.unit.dp
 import funlauncher.NavPanelPosition
-import funlauncher.openFolder
 import funlauncher.managers.CacheManager
 import funlauncher.managers.PathManager
 import funlauncher.net.DownloadManager
@@ -28,6 +27,7 @@ import state.AppState
 import ui.screens.*
 import ui.theme.AnimatedAppTheme
 import ui.viewmodel.AppViewModel
+import ui.viewmodel.HomeViewModel
 import ui.widgets.BeautifulCircularProgressIndicator
 import ui.widgets.DownloadsPopup
 
@@ -51,6 +51,8 @@ fun App(
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    val homeViewModel = remember { HomeViewModel(viewModel) }
 
     // Эффект для отображения "галочки" после завершения всех загрузок.
     LaunchedEffect(DownloadManager.tasks.size) {
@@ -76,19 +78,7 @@ fun App(
                 Box(modifier = Modifier.fillMaxSize().padding(start = contentPaddingStart, bottom = contentPaddingBottom)) {
                     Crossfade(targetState = viewModel.currentTab, animationSpec = tween(300)) { tab ->
                         when (tab) {
-                            AppTab.Home -> HomeScreen(
-                                builds = viewModel.buildList,
-                                runningBuild = viewModel.runningBuild,
-                                onLaunchClick = viewModel::onLaunchClick,
-                                onOpenFolderClick = { openFolder(it.installPath) },
-                                onAddBuildClick = { viewModel.showAddBuildDialog = true },
-                                isLaunchingBuildId = viewModel.isLaunchingBuildId,
-                                onDeleteBuildClick = viewModel::onDeleteBuildClick,
-                                onSettingsBuildClick = { viewModel.showBuildSettingsScreen = it },
-                                currentAccount = viewModel.currentAccount,
-                                onOpenAccountManager = { viewModel.showAccountScreen = true },
-                                buildsPendingDeletion = viewModel.buildsPendingDeletion.toSet()
-                            )
+                            AppTab.Home -> HomeScreen(homeViewModel)
                             AppTab.Modifications -> ModificationsScreen(
                                 onBack = { viewModel.currentTab = AppTab.Home },
                                 navPanelPosition = appState.settings.navPanelPosition,
@@ -141,7 +131,7 @@ fun App(
 }
 
 @Composable
-private fun BoxScope.AppNavigation(
+private fun BoxScope.AppNavigation( // Changed to BoxScope receiver
     currentTab: AppTab,
     onTabSelected: (AppTab) -> Unit,
     navPanelPosition: NavPanelPosition

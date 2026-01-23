@@ -12,6 +12,8 @@ class CacheManager(
     pathManager: PathManager
 ) {
     private val cacheDir = pathManager.getCacheDir().toFile()
+    private val imageCacheDir = File(cacheDir, "images").also { it.mkdirs() }
+
     val json = Json {
         prettyPrint = true
         ignoreUnknownKeys = true
@@ -23,13 +25,18 @@ class CacheManager(
         }
     }
 
-    fun getCacheFile(key: String): File {
+    fun getJsonCacheFile(key: String): File {
         val hashedKey = sha256(key)
         return File(cacheDir, "$hashedKey.json")
     }
 
+    fun getImageCacheFile(url: String): File {
+        val hashedKey = sha256(url)
+        return File(imageCacheDir, hashedKey)
+    }
+
     suspend inline fun <reified T> getOrFetch(key: String, crossinline fetcher: suspend () -> T): T? {
-        val cacheFile = getCacheFile(key)
+        val cacheFile = getJsonCacheFile(key)
 
         if (cacheFile.exists()) {
             try {

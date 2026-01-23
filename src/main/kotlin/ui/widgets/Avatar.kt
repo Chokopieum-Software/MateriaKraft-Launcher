@@ -14,24 +14,22 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.res.painterResource
+import org.jetbrains.compose.resources.painterResource // Используем painterResource из org.jetbrains.compose.resources
 import funlauncher.auth.Account
 import funlauncher.auth.MicrosoftAccount
 import funlauncher.auth.OfflineAccount
-import kotlinx.coroutines.CancellationException
 
 @Composable
 fun AvatarImage(account: Account?, modifier: Modifier = Modifier) {
     when (account) {
         is MicrosoftAccount -> {
-            val imageBitmap by produceState<ImageBitmap?>(initialValue = null, account.uuid) {
-                value = ImageLoader.loadAvatar(account.uuid)
-            }
+            val avatarUrl = "https://crafatar.com/avatars/${account.uuid}?size=64&overlay"
+            val imageBitmap = ImageLoader.rememberImageBitmapFromUrl(avatarUrl)
 
             if (imageBitmap != null) {
                 Image(
-                    bitmap = imageBitmap!!,
+                    bitmap = imageBitmap,
                     contentDescription = "Avatar of ${account.username}",
                     modifier = modifier
                 )
@@ -45,6 +43,7 @@ fun AvatarImage(account: Account?, modifier: Modifier = Modifier) {
             }
         }
         is OfflineAccount -> {
+            // Возвращаем к строковому пути, предполагая, что ресурс находится в папке drawable
             Image(
                 painter = painterResource("steve_head.png"),
                 contentDescription = "Offline Account Avatar",

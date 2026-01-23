@@ -35,6 +35,7 @@ import ui.App
 import ui.screens.FirstRunWizard
 import ui.theme.AnimatedAppTheme
 import ui.viewmodel.AppViewModel
+import ui.widgets.ImageLoader
 import java.time.Month
 import java.time.OffsetDateTime
 import java.util.*
@@ -106,6 +107,9 @@ fun main(args: Array<String>) {
         globalCacheManager = CacheManager(globalPathManager)
         globalModrinthApi = ModrinthApi(globalCacheManager)
         globalVersionMetadataFetcher = VersionMetadataFetcher(globalBuildManager, globalPathManager)
+
+        // Initialize ImageLoader
+        ImageLoader.init(globalCacheManager)
     }
 
     // Создание и отображение сплеш-скрина с помощью Swing.
