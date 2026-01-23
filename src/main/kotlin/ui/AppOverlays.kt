@@ -1,107 +1,87 @@
 package ui
 
 import androidx.compose.runtime.Composable
-import funlauncher.BuildType
-import funlauncher.MinecraftBuild
-import funlauncher.auth.Account
-import funlauncher.auth.AccountManager
-import funlauncher.managers.JavaManager
 import funlauncher.managers.PathManager
-import funlauncher.net.JavaDownloader
 import state.AppState
-import ui.dialogs.AddBuildDialog
-import ui.dialogs.ConfirmDeleteDialog
-import ui.dialogs.ErrorDialog
-import ui.dialogs.RamWarningDialog
+import ui.dialogs.*
 import ui.screens.AccountScreen
 import ui.screens.BuildSettingsScreen
 import ui.screens.JavaManagerWindow
-import ui.windows.GameConsoleWindow
+import ui.viewmodel.AppViewModel
 
-/**
- * Компонент, который управляет отображением всех модальных окон и диалогов поверх основного интерфейса.
- */
 @Composable
 fun AppOverlays(
+    viewModel: AppViewModel,
     appState: AppState,
-    showJavaManagerWindow: Boolean,
-    onCloseJavaManagerWindow: () -> Unit,
-    javaManager: JavaManager,
-    javaDownloader: JavaDownloader,
-    showAddBuildDialog: Boolean,
-    onCloseAddBuildDialog: () -> Unit,
-    onAddBuild: (String, String, BuildType, String?) -> Unit,
-    pathManager: PathManager,
-    buildSettingsToShow: MinecraftBuild?,
-    onCloseBuildSettings: () -> Unit,
-    onSaveBuildSettings: (String, String, BuildType, String?, String?, Int?, String?, String?) -> Unit,
-    showAccountScreen: Boolean,
-    onCloseAccountScreen: () -> Unit,
-    onAccountSelected: (Account) -> Unit,
-    accountManager: AccountManager,
-    showGameConsole: Boolean,
-    onCloseGameConsole: () -> Unit,
-    ramWarningDialogToShow: MinecraftBuild?,
-    onCloseRamWarningDialog: () -> Unit,
-    onConfirmRamWarning: (MinecraftBuild) -> Unit,
-    errorDialogMessage: String?,
-    onDismissErrorDialog: () -> Unit,
-    buildToDelete: MinecraftBuild?,
-    onDismissDeleteDialog: () -> Unit,
-    onConfirmDelete: (MinecraftBuild) -> Unit
+    pathManager: PathManager
 ) {
-    if (showJavaManagerWindow) {
+    if (viewModel.showJavaManagerWindow) {
         JavaManagerWindow(
-            onCloseRequest = onCloseJavaManagerWindow,
-            javaManager = javaManager,
-            javaDownloader = javaDownloader,
+            onCloseRequest = { viewModel.showJavaManagerWindow = false },
+            javaManager = viewModel.javaManager,
+            javaDownloader = viewModel.javaDownloader,
             appSettings = appState.settings
         )
     }
-    if (showAddBuildDialog) {
+
+    if (viewModel.showAddBuildDialog) {
         AddBuildDialog(
-            onDismiss = onCloseAddBuildDialog,
-            onAdd = onAddBuild,
-            pathManager = pathManager
+            pathManager = pathManager,
+            onDismiss = { viewModel.showAddBuildDialog = false },
+            onAdd = { name, version, type, imagePath ->
+                viewModel.onAddBuild(name, version, type.name, imagePath)
+            }
         )
     }
-    buildSettingsToShow?.let { build ->
+
+    viewModel.showBuildSettingsScreen?.let { build ->
         BuildSettingsScreen(
             build = build,
+            pathManager = pathManager,
             globalSettings = appState.settings,
-            onDismiss = onCloseBuildSettings,
-            onSave = onSaveBuildSettings,
-            pathManager = pathManager
+            onDismiss = { viewModel.showBuildSettingsScreen = null },
+            onSave = { newName, newVersion, newType, newImagePath, javaPath, maxRam, javaArgs, envVars ->
+                viewModel.onSaveBuildSettings(newName, newVersion, newType.name, newImagePath, javaPath, maxRam, javaArgs, envVars)
+            }
         )
     }
-    if (showAccountScreen) {
+
+    if (viewModel.showAccountScreen) {
         AccountScreen(
-            accountManager = accountManager,
-            onDismiss = onCloseAccountScreen,
-            onAccountSelected = onAccountSelected
+            accountManager = viewModel.accountManager,
+            onAccountSelected = viewModel::onAccountSelected,
+            onDismiss = { viewModel.showAccountScreen = false }
         )
     }
-    if (showGameConsole) {
-        GameConsoleWindow(onCloseRequest = onCloseGameConsole)
+
+    // This should be a separate component, but for now let's keep it here
+    if (viewModel.showGameConsole) {
+        // GameConsoleView(...)
     }
-    ramWarningDialogToShow?.let { build ->
+
+    viewModel.showRamWarningDialog?.let { build ->
         RamWarningDialog(
             build = build,
-            onDismiss = onCloseRamWarningDialog,
-            onConfirm = { onConfirmRamWarning(build) }
+            onDismiss = {
+                viewModel.showRamWarningDialog = null
+                viewModel.isLaunchingBuildId = null
+            },
+            onConfirm = { viewModel.onConfirmRamWarning(build) }
         )
     }
-    errorDialogMessage?.let { message ->
+
+    viewModel.errorDialogMessage?.let { message ->
         ErrorDialog(
             message = message,
-            onDismiss = onDismissErrorDialog
+            onDismiss = { viewModel.errorDialogMessage = null }
         )
     }
-    buildToDelete?.let { build ->
+
+    viewModel.buildToDelete?.let { build ->
         ConfirmDeleteDialog(
             build = build,
-            onDismiss = onDismissDeleteDialog,
-            onConfirm = { onConfirmDelete(build) }
+            onDismiss = { viewModel.buildToDelete = null },
+            onConfirm = { viewModel.onConfirmDelete(build) }
         )
     }
 }

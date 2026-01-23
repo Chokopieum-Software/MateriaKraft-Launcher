@@ -34,6 +34,7 @@ import state.Screen
 import ui.App
 import ui.screens.FirstRunWizard
 import ui.theme.AnimatedAppTheme
+import ui.viewmodel.AppViewModel
 import java.time.Month
 import java.time.OffsetDateTime
 import java.util.*
@@ -223,9 +224,25 @@ fun main(args: Array<String>) {
             }
             is Screen.MainApp -> {
                 appState?.let { state ->
+                    val viewModel = remember {
+                        AppViewModel(
+                            appState = state,
+                            buildManager = globalBuildManager,
+                            javaManager = globalJavaManager,
+                            accountManager = globalAccountManager,
+                            javaDownloader = globalJavaDownloader,
+                            versionMetadataFetcher = globalVersionMetadataFetcher,
+                            onSettingsChange = { newSettings ->
+                                appState = state.copy(settings = newSettings)
+                                scope.launch { globalSettingsManager.saveSettings(newSettings) }
+                            }
+                        )
+                    }
+
                     Window(
                         onCloseRequest = {
                             scope.launch {
+                                viewModel.cancelScope()
                                 MLGDClient.shutdown()
                                 globalModrinthApi.close()
                                 exitApplication()
@@ -237,18 +254,10 @@ fun main(args: Array<String>) {
                         state = rememberWindowState(width = 1024.dp, height = 768.dp)
                     ) {
                         App(
+                            viewModel = viewModel,
                             appState = state,
-                            onSettingsChange = { newSettings ->
-                                appState = state.copy(settings = newSettings)
-                                scope.launch { globalSettingsManager.saveSettings(newSettings) }
-                            },
-                            buildManager = globalBuildManager,
-                            javaManager = globalJavaManager,
-                            accountManager = globalAccountManager,
-                            javaDownloader = globalJavaDownloader,
                             pathManager = globalPathManager,
-                            cacheManager = globalCacheManager,
-                            versionMetadataFetcher = globalVersionMetadataFetcher
+                            cacheManager = globalCacheManager
                         )
                         SideEffect {
                             if (!isContentReady) {
