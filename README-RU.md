@@ -41,7 +41,6 @@
 - **Java**: Java 25 (LTS)
 - **UI Framework**: [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/)
 - **Сборка**: Gradle 9.2.1
-- **Управление игрой**: MLGD (Materia Launcher Game Daemon)
 - **Дизайн**: Material Design 3
 
 ---

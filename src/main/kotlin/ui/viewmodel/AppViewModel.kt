@@ -13,12 +13,9 @@ import funlauncher.game.MLGDClient
 import funlauncher.game.MinecraftInstaller
 import funlauncher.game.VersionMetadataFetcher
 import funlauncher.managers.BuildManager
-import funlauncher.managers.CacheManager
 import funlauncher.managers.JavaManager
-import funlauncher.managers.PathManager
 import funlauncher.net.JavaDownloader
 import kotlinx.coroutines.*
-import org.chokopieum.software.mlgd.StatusResponse
 import state.AppState
 import ui.AppTab
 import java.lang.management.ManagementFactory
@@ -41,11 +38,9 @@ class AppViewModel(
     var accounts by mutableStateOf(appState.accounts)
     var currentAccount by mutableStateOf(accounts.firstOrNull())
 
-    var daemonStatus by mutableStateOf(StatusResponse(running = false))
-    val runningBuild by derivedStateOf {
-        if (daemonStatus.running) buildList.find { it.name == daemonStatus.buildName } else null
-    }
-
+    var daemonStatus by mutableStateOf("STOPPED")
+    val isGameRunning by derivedStateOf { daemonStatus == "RUNNING" }
+    
     var showAddBuildDialog by mutableStateOf(false)
     var showJavaManagerWindow by mutableStateOf(false)
     var showAccountScreen by mutableStateOf(false)
@@ -70,7 +65,7 @@ class AppViewModel(
                 val newStatus = withContext(Dispatchers.IO) { MLGDClient.getStatus() }
                 if (newStatus != daemonStatus) {
                     daemonStatus = newStatus
-                    if (!newStatus.running) {
+                    if (newStatus == "STOPPED") {
                         isLaunchingBuildId = null
                     }
                 }
@@ -88,7 +83,6 @@ class AppViewModel(
                 buildList.clear()
                 buildList.addAll(synchronizedBuilds)
             }
-            // TODO: Show snackbar message about new builds
         }
     }
 
@@ -112,17 +106,15 @@ class AppViewModel(
             val finalJavaArgs = build.javaArgs ?: appState.settings.javaArgs
             val finalEnvVars = build.envVars ?: appState.settings.envVars
 
-            val launchConfig = withContext(Dispatchers.IO) {
-                installer.createLaunchConfig(
+            withContext(Dispatchers.IO) {
+                installer.launchGame(
                     account = account,
                     javaPath = javaPath,
                     maxRamMb = finalMaxRam,
                     javaArgs = finalJavaArgs,
-                    envVars = finalEnvVars,
-                    showConsole = appState.settings.showConsoleOnLaunch
+                    envVars = finalEnvVars
                 )
             }
-            daemonStatus = withContext(Dispatchers.IO) { MLGDClient.launch(launchConfig) }
         }.onFailure { e ->
             e.printStackTrace()
             errorDialogMessage = "Ошибка запуска: ${e.message}"
@@ -172,7 +164,7 @@ class AppViewModel(
             errorDialogMessage = "Сначала выберите аккаунт!"
             return
         }
-        if (daemonStatus.running) {
+        if (isGameRunning) {
             // TODO: Show snackbar that a game is already running
             return
         }

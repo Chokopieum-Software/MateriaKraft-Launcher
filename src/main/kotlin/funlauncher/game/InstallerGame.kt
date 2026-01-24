@@ -15,7 +15,6 @@ import funlauncher.managers.PathManager
 import funlauncher.net.DownloadManager
 import funlauncher.net.FileDownloader
 import io.ktor.client.plugins.*
-import org.chokopieum.software.mlgd.LaunchConfig
 import java.net.ConnectException
 import java.net.UnknownHostException
 import kotlin.io.path.exists
@@ -32,51 +31,9 @@ class MinecraftInstaller(private val build: MinecraftBuild, private val buildMan
         println("[Installer] $message")
     }
 
-    suspend fun createLaunchConfig(
-        account: Account,
-        javaPath: String,
-        maxRamMb: Int,
-        javaArgs: String,
-        envVars: String,
-        showConsole: Boolean // Параметр добавлен
-    ): LaunchConfig {
-        val task = DownloadManager.startTask("Minecraft ${build.version}")
-        try {
-            log("Creating launch config for ${build.name} (${build.version})")
-            log("System: ${System.getProperty("os.name")} ${System.getProperty("os.arch")}, Java: $javaPath")
-
-            // 1. Fetch Version Metadata
-            DownloadManager.updateTask(task.id, 0.05f, "Получение метаданных...")
-            val metadataFetcher = VersionMetadataFetcher(buildManager, pathManager)
-            val versionInfo = metadataFetcher.getVersionInfo(build, task)
-
-            // 2. Download Files
-            DownloadManager.updateTask(task.id, 0.1f, "Загрузка файлов...")
-            val fileDownloader = FileDownloader(versionInfo, pathManager, buildManager)
-            fileDownloader.downloadRequiredFiles(build) { progress, status ->
-                DownloadManager.updateTask(task.id, 0.1f + progress * 0.8f, status)
-            }
-
-            // 3. Create Launch Config
-            DownloadManager.updateTask(task.id, 0.95f, "Создание конфигурации...")
-            val gameLauncher = GameLauncher(versionInfo, build, pathManager)
-            // Передаем showConsole дальше
-            val launchConfig = gameLauncher.createLaunchConfig(account, javaPath, maxRamMb, javaArgs, envVars, showConsole)
-
-            DownloadManager.updateTask(task.id, 1.0f, "Готово")
-            log("Launch config created successfully.")
-            return launchConfig
-
-        } catch (e: Exception) {
-            handleLaunchException(e)
-        } finally {
-            DownloadManager.endTask(task.id)
-        }
-    }
-
-    suspend fun launch(
-        account: Account, javaPath: String, maxRamMb: Int, javaArgs: String, envVars: String, showConsole: Boolean
-    ): Process {
+    suspend fun launchGame(
+        account: Account, javaPath: String, maxRamMb: Int, javaArgs: String, envVars: String
+    ) {
         val task = DownloadManager.startTask("Minecraft ${build.version}")
         try {
             log("Starting launch for ${build.name} (${build.version})")
@@ -94,14 +51,15 @@ class MinecraftInstaller(private val build: MinecraftBuild, private val buildMan
                 DownloadManager.updateTask(task.id, 0.1f + progress * 0.8f, status)
             }
 
-            // 3. Launch Game
-            DownloadManager.updateTask(task.id, 0.95f, "Запуск...")
+            // 3. Create Payload and Launch via Daemon
+            DownloadManager.updateTask(task.id, 0.95f, "Запуск через демона...")
             val gameLauncher = GameLauncher(versionInfo, build, pathManager)
-            val process = gameLauncher.launch(account, javaPath, maxRamMb, javaArgs, envVars, showConsole)
+            val payload = gameLauncher.createLaunchPayload(account, javaPath, maxRamMb, javaArgs, envVars)
+            
+            MLGDClient.launch(payload)
 
-            DownloadManager.updateTask(task.id, 1.0f, "Запущено")
-            log("Launch process started successfully.")
-            return process
+            DownloadManager.updateTask(task.id, 1.0f, "Команда запуска отправлена")
+            log("Launch command sent to daemon successfully.")
 
         } catch (e: Exception) {
             handleLaunchException(e)

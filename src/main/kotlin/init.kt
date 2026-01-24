@@ -40,7 +40,6 @@ import java.time.Month
 import java.time.OffsetDateTime
 import java.util.*
 import javax.swing.JLabel
-import javax.swing.JOptionPane
 import javax.swing.SwingUtilities
 
 // Флаг, указывающий, что основной контент готов к отображению (используется для скрытия сплеш-скрина).
@@ -65,7 +64,6 @@ fun main(args: Array<String>) {
         System.setProperty("skiko.renderApi", "SOFTWARE")
         println("Using render API: SOFTWARE (UI Test)")
     } else {
-        // Попытка установить оптимальный рендер-API (Vulkan или OpenGL) для Skiko.
         runCatching {
             val os = System.getProperty("os.name").lowercase()
             if (!os.contains("mac")) {
@@ -81,21 +79,17 @@ fun main(args: Array<String>) {
         }
     }
 
-    // Инициализация PathManager и проверка первого запуска
     globalPathManager = PathManager(PathManager.getDefaultAppDataDirectory())
     val isFirstRun = globalPathManager.isFirstRunRequired()
 
     runBlocking(Dispatchers.IO) {
         if (isFirstRun) {
-            // Если это первый запуск, создаем директории и инициализируем БД
             globalPathManager.createRequiredDirectories()
             DatabaseManager.init(globalPathManager)
         } else {
-            // Если не первый запуск, просто инициализируем БД
             DatabaseManager.init(globalPathManager)
         }
 
-        // Инициализация остальных менеджеров после того, как БД гарантированно подключена
         globalSettingsManager = SettingsManager(globalPathManager)
         val settings = globalSettingsManager.loadSettings()
         Locale.setDefault(Locale(settings.language))
@@ -108,15 +102,12 @@ fun main(args: Array<String>) {
         globalModrinthApi = ModrinthApi(globalCacheManager)
         globalVersionMetadataFetcher = VersionMetadataFetcher(globalBuildManager, globalPathManager)
 
-        // Initialize ImageLoader
         ImageLoader.init(globalCacheManager)
     }
 
-    // Создание и отображение сплеш-скрина с помощью Swing.
     val statusLabel = JLabel("Initializing...")
     val splash = createAndShowSplashScreen(statusLabel)
 
-    // Предварительное кэширование метаданных версий в фоновом режиме
     CoroutineScope(Dispatchers.IO).launch {
         runCatching {
             globalVersionMetadataFetcher.prefetchVersionMetadata { status ->
@@ -127,7 +118,6 @@ fun main(args: Array<String>) {
         }
     }
 
-    // Запуск и проверка доступности демона MLGD.
     runBlocking {
         SwingUtilities.invokeLater { statusLabel.text = "Starting daemon..." }
         runCatching {
@@ -138,14 +128,12 @@ fun main(args: Array<String>) {
         }
     }
 
-    // Запуск основного цикла приложения Compose.
     application {
         var currentScreen by remember { mutableStateOf<Screen>(Screen.Splash) }
         var appState by remember { mutableStateOf<AppState?>(null) }
         val scope = rememberCoroutineScope()
 
-        // Выбор иконки приложения в зависимости от времени года (зима/не зима).
-        val month = OffsetDateTime.now().month // TODO: Перенести в ресурсы
+        val month = OffsetDateTime.now().month
         val isWinter = month == Month.DECEMBER || month == Month.JANUARY || month == Month.FEBRUARY
         val icon = if (isWinter) {
             painterResource(Res.drawable.MLicon_snow)
@@ -153,7 +141,6 @@ fun main(args: Array<String>) {
             painterResource(Res.drawable.MLicon)
         }
 
-        // Эффект для скрытия сплеш-скрина, когда контент готов.
         LaunchedEffect(isContentReady) {
             if (isContentReady) {
                 splash?.isVisible = false
@@ -161,7 +148,6 @@ fun main(args: Array<String>) {
             }
         }
 
-        // Главный эффект, который управляет переключением между экранами (Splash -> Wizard/MainApp).
         LaunchedEffect(currentScreen) {
             if (currentScreen is Screen.Splash) {
                 isContentReady = false
@@ -171,7 +157,6 @@ fun main(args: Array<String>) {
                             currentScreen = Screen.FirstRunWizard
                         }
                     } else {
-                        // Асинхронная загрузка всех необходимых данных.
                         SwingUtilities.invokeLater { statusLabel.text = "Loading UI..." }
                         val settingsJob = async { globalSettingsManager.loadSettings() }
                         val buildsJob = async { globalBuildManager.loadBuilds() }
@@ -191,9 +176,8 @@ fun main(args: Array<String>) {
             }
         }
 
-        // Рендеринг текущего экрана в зависимости от состояния.
         when (currentScreen) {
-            is Screen.Splash -> { /* Ничего не делаем, сплеш уже показан */ }
+            is Screen.Splash -> { /* Do nothing, splash is already shown */ }
             is Screen.FirstRunWizard -> {
                 var wizardTheme by remember { mutableStateOf(Theme.Dark) }
                 Window(
@@ -211,14 +195,13 @@ fun main(args: Array<String>) {
                 ) {
                     AnimatedAppTheme(wizardTheme) {
                         FirstRunWizard(
-                            accountManager = globalAccountManager, // Теперь globalAccountManager всегда инициализирован
+                            accountManager = globalAccountManager,
                             initialTheme = wizardTheme,
                             onThemeChange = { wizardTheme = it },
                             onWizardComplete = { newSettings ->
                                 scope.launch(Dispatchers.IO) {
-                                    // Директории и БД уже инициализированы, просто сохраняем настройки
                                     globalSettingsManager.saveSettings(newSettings)
-                                    currentScreen = Screen.Splash // Переходим на сплеш для загрузки основного приложения
+                                    currentScreen = Screen.Splash
                                 }
                             }
                         )

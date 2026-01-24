@@ -41,7 +41,6 @@ The project is in the **early alpha stage**. This means:
 - **Java**: Java 25 (LTS)
 - **UI Framework**: [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/)
 - **Build**: Gradle 9.2.1
-- **Game Management**: MLGD (Materia Launcher Game Daemon)
 - **Design**: Material Design 3
 
 ---

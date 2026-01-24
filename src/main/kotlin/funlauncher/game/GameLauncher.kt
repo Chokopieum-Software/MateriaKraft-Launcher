@@ -9,13 +9,9 @@
 package funlauncher.game
 
 import funlauncher.BuildType
-import funlauncher.GameConsole
 import funlauncher.MinecraftBuild
 import funlauncher.auth.Account
 import funlauncher.managers.PathManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.chokopieum.software.mlgd.LaunchConfig
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -42,20 +38,18 @@ class GameLauncher(
 
     private fun log(message: String) = println("[GameLauncher] $message")
 
-    suspend fun createLaunchConfig(
+    suspend fun createLaunchPayload(
         account: Account,
         javaPath: String,
         maxRamMb: Int,
         customJavaArgs: String,
-        envVars: String,
-        showConsole: Boolean // Новый параметр
-    ): LaunchConfig {
+        envVars: String
+    ): LaunchPayload {
         extractNatives()
-        val command = buildLaunchCommand(account, javaPath, maxRamMb, customJavaArgs)
+        val commandList = buildLaunchCommand(account, javaPath, maxRamMb, customJavaArgs)
 
-        val mainClassIndex = command.indexOf(versionInfo.mainClass)
-        val jvmArgs = command.subList(1, mainClassIndex)
-        val gameArgs = command.subList(mainClassIndex + 1, command.size)
+        val command = commandList.first()
+        val arguments = commandList.drop(1)
 
         val envMap = if (envVars.isNotBlank()) {
             envVars.lines().mapNotNull { line ->
@@ -66,56 +60,11 @@ class GameLauncher(
             emptyMap()
         }
 
-        return LaunchConfig(
-            buildName = build.name,
-            javaPath = command.first(),
-            jvmArgs = jvmArgs,
-            gameJarPath = command[mainClassIndex],
-            gameArgs = gameArgs,
-            workingDir = gameDir.toAbsolutePath().toString(),
-            logsPath = pathManager.getLogsDir().toAbsolutePath().toString(),
-            showConsole = showConsole, // Передаем значение
-            envVars = envMap
+        return LaunchPayload(
+            command = command,
+            arguments = arguments,
+            environment = envMap
         )
-    }
-
-    suspend fun launch(
-        account: Account,
-        javaPath: String,
-        maxRamMb: Int,
-        customJavaArgs: String,
-        envVars: String,
-        showConsole: Boolean
-    ): Process {
-        extractNatives()
-        val command = buildLaunchCommand(account, javaPath, maxRamMb, customJavaArgs)
-        val processBuilder = ProcessBuilder(command)
-            .directory(gameDir.toFile())
-            .redirectErrorStream(true)
-
-        if (envVars.isNotBlank()) {
-            val env = processBuilder.environment()
-            envVars.lines().forEach { line ->
-                val parts = line.split("=", limit = 2)
-                if (parts.size == 2) env[parts[0].trim()] = parts[1].trim()
-            }
-        }
-
-        val process = withContext(Dispatchers.IO) { processBuilder.start() }
-
-        // Start a thread to forward game output to the IDE console and the in-app console
-        Thread {
-            process.inputStream.bufferedReader().useLines { lines ->
-                lines.forEach { line ->
-                    println(line) // Log to IDE console
-                    if (showConsole) {
-                        GameConsole.addLog(line) // Log to UI console
-                    }
-                }
-            }
-        }.start()
-
-        return process
     }
 
     private fun extractNatives() {
@@ -127,13 +76,11 @@ class GameLauncher(
         val arch = getArch()
         val isLinuxArm = osName == "linux" && arch == "arm64"
 
-        // Process all libraries from version info
         versionInfo.libraries
             .filter { it.downloads?.classifiers != null && isRuleApplicable(it.rules ?: emptyList()) }
             .forEach { lib ->
-                // On Linux ARM, skip all LWJGL libraries, as we'll handle them manually
                 if (isLinuxArm && lib.name.startsWith("org.lwjgl")) {
-                    return@forEach // continue to next library
+                    return@forEach
                 }
 
                 val classifiers = lib.downloads!!.classifiers!!
@@ -149,7 +96,6 @@ class GameLauncher(
                 }
             }
 
-        // If on Linux ARM, manually add and extract LWJGL 3.3.3 natives
         if (isLinuxArm) {
             log("Linux ARM detected. Forcing LWJGL 3.3.3 natives.")
             val lwjglArtifacts = listOf(
@@ -209,7 +155,6 @@ class GameLauncher(
         val processedGameArgs = processArguments(gameArgsSource).map(replacePlaceholders)
         finalCommand.addAll(filterUndesiredArgs(processedGameArgs))
 
-        // Final cleanup: Force remove -XstartOnFirstThread on non-macOS
         if (osName != "osx") {
             finalCommand.removeAll { it == "-XstartOnFirstThread" }
         }
@@ -229,9 +174,8 @@ class GameLauncher(
 
         versionInfo.libraries.forEach { lib ->
             if (isRuleApplicable(lib.rules ?: emptyList())) {
-                // On Linux ARM, skip all LWJGL libraries from metadata
                 if (isLinuxArm && lib.name.startsWith("org.lwjgl")) {
-                    return@forEach // continue
+                    return@forEach
                 }
 
                 val path = lib.downloads?.artifact?.path ?: getArtifactPath(lib.name)
@@ -239,7 +183,6 @@ class GameLauncher(
             }
         }
 
-        // If on Linux ARM, manually add LWJGL 3.3.3 jars to the classpath
         if (isLinuxArm) {
             log("Linux ARM detected. Forcing LWJGL 3.3.3 on classpath.")
             val lwjglArtifacts = listOf(
@@ -249,10 +192,8 @@ class GameLauncher(
             val nativeClassifier = "natives-linux-arm64"
 
             lwjglArtifacts.forEach { artifactName ->
-                // Add main jar
                 val mainJarPath = "org/lwjgl/$artifactName/$lwjglVersion/$artifactName-$lwjglVersion.jar"
                 cpList.add(globalLibrariesDir.resolve(mainJarPath).toAbsolutePath().toString())
-                // Add native jar for classpath as well, some mods need it.
                 val nativeJarPath = "org/lwjgl/$artifactName/$lwjglVersion/$artifactName-$lwjglVersion-$nativeClassifier.jar"
                 cpList.add(globalLibrariesDir.resolve(nativeJarPath).toAbsolutePath().toString())
             }
@@ -292,7 +233,6 @@ class GameLauncher(
     )
 
     private fun processArguments(args: List<JsonElementWrapper>?): List<String> {
-        val osName = getOsName()
         return args?.flatMap { wrapper ->
             when (wrapper) {
                 is JsonElementWrapper.StringValue -> listOf(wrapper.value)
@@ -340,7 +280,7 @@ class GameLauncher(
 
     private fun isRuleApplicable(rules: List<VersionInfo.Rule>): Boolean {
         if (rules.isEmpty()) return true
-        var applies = false // Default to not applying if there are rules but none match
+        var applies = false
         var hasOsSpecificRule = false
 
         for (rule in rules) {
@@ -352,7 +292,6 @@ class GameLauncher(
             }
         }
 
-        // If there are no OS-specific rules, check for general allow/disallow
         if (!hasOsSpecificRule) {
             for (rule in rules) {
                 if (rule.os == null) {
@@ -361,7 +300,7 @@ class GameLauncher(
             }
         }
 
-        return !hasOsSpecificRule // If there were OS-specific rules but none matched, don't apply
+        return !hasOsSpecificRule
     }
 
     private fun getOsName(): String = when {
